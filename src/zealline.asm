@@ -106,13 +106,13 @@
                 ld c, a                             ; save Register A in C, C is now the entered Scancode
                 ld a, (linebuffer_size)
                 inc a                               ; increase the linebuffer size by one!
+                push af                             ; remember increased linebuffer size
                 cp MAX_LINE_LENGTH
                 jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
-                ld (linebuffer_size), a
                 ld hl, linebuffer                   ; load the address of the linebuffer
-                ld a, (linebuffer_position)         ; load the linebuffer_position into a
-                push af                             ; STORE linebuffer_psition on stack
+                ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
+                push af                             ; STORE linebuffer_offset on stack
                 ld d, 0                             ; it is only 1 byte, so set D to 0
                 ld e, a                             ; and set (D)E to A, because of addition to HL
                 add hl, de                          ; goto cursor position
@@ -127,17 +127,22 @@
                 ld c, a                             ; load uppercase char into into C
         _no_upper_case:
                 ld (hl), c                          ; write the char in C to the linebuffer
-                pop af                              ; GET linebuffer_position from stack
+
+                pop af                              ; GET linebuffer_offset from stack
                 inc a                               ; move the cursor one step forward
-                ld (linebuffer_position), a         ; store A back
-                ld a, c                             ; restore the caracter in B back to A in order to
+                ld (linebuffer_offset), a           ; store A back
+
+                ld a, c                             ; restore the caracter in C back to A in order to
                 ld (charbuffer), a                  ; write the character to the charbuffer
                 S_WRITE3(DEV_STDOUT, charbuffer, 1) ; output it to the screen
+
+                pop af                              ; restore saved increased linebuffer size
+                ld (linebuffer_size), a             ; store the increased linebuffer size
         ENDM
 
         MACRO INITIALIZE_LINEBUFFER_VARIABLES _
                 or a  ; set a to 0
-                ld (linebuffer_position), a
+                ld (linebuffer_offset), a
                 ld (linebuffer_size), a
         ENDM
 
@@ -343,7 +348,7 @@ whitespace_char:            defm " "
 readbuffer:                 defs 2
 charbuffer:                 defs 1
 linebuffer:                 defs MAX_LINE_LENGTH + 1 ; line + newline_char
-linebuffer_position:        defs 1
+linebuffer_offset:          defs 1
 linebuffer_size:            defs 1
 kb_flags:                   defs 1 ; store shift and caps lock, etc
 cursor_position:            defs 2 ; x: Low Byte // y: High Byte
