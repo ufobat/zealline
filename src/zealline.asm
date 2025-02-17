@@ -263,19 +263,19 @@ __use_c_register:
         ld c, a                    ; but A still contains the old c value
 __copy_line_completed:
         xor a
-        ret                        ; returns BC = length, a = 0 (no error)
+        ret                        ; returns BC = length, A = 0 (no error)
 _handle_backspace_event:
         STORE_CURSOR_POS() ; get cursor position
         ld a, (default_prompt_length)
-        ld b, a                 ; load promptlength tob
-        ld a, (cursor_position) ; load x position of Cursor to a
+        ld b, a                 ; load promptlength to B
+        ld a, (cursor_position) ; load x position of Cursor to A
         sub b
         jp z, _handle_new_input ; CASE 1: cursor was competly left - ignore this
         ; Register A is now the position in the linebuffer
-        ld c, a                 ; save value to b
+        ld c, a                 ; save value to C
         ld a, (linebuffer_size) 
         cp c ; if zeroflag is set we're deleting from the end
-        jr z, __delete_at_the_end ; <= Case3
+        jr z, __delete_at_the_end ; <= Case 3
 __delete_somewhere_in_the_middle: ; <= Case 2
         dec a
         ld (linebuffer_size), a  ; we loose one character
