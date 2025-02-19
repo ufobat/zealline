@@ -47,22 +47,21 @@
                 IOCTL()
         ENDM
 
-        MACRO MOVE_CURSOR_TO_THE_LEFT _
-                ; d = x-cooridinate and e = y-coordinate
-                ld de, (cursor_position) ; load and swap
-                ld a, d
-                ld d, e
-                ld e, a
-                dec d
-                ld h, DEV_STDOUT
-                ld c, CMD_SET_CURSOR_XY
-                IOCTL()
-        ENDM
-
         MACRO SET_STDIN_TO_RAW__ON_ERROR on_error_lable
                 ld h, DEV_STDIN
                 ld c, KB_CMD_SET_MODE
                 ld e, KB_MODE_RAW
+                IOCTL()
+                or a
+                jp nz, on_error_lable
+        ENDM
+
+        ; Saves the screen area at memory location 'screen_area'
+        ; Modifies: A, C, DE, H
+        MACRO GET_SCREEN_AREA__ON_ERROR on_error_lable
+                ld de, screen_area
+                ld h, DEV_STDOUT
+                ld c, CMD_GET_AREA
                 IOCTL()
                 or a
                 jp nz, on_error_lable
@@ -183,6 +182,7 @@ zline_get_line:
         cp MAX_LINE_LENGTH
         jp nc, print_requested_to_much_buffer_and_return
         SET_STDIN_TO_RAW__ON_ERROR(print_stdin_raw_error_and_fatalloop)
+        GET_SCREEN_AREA__ON_ERROR(print_screen_area_error_and_fatalloop)
         PRINT_PROMPT()
         ; STORE_CURSOR_POS__ON_ERROR(print_cursor_read_error_and_fatalloop)
         ; SO WHAT TO DO?
@@ -296,7 +296,7 @@ __delete_somewhere_in_the_middle: ; <= Case 2
         ld iy, de    ; store DE in IY for later!
         ldir ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
         S_WRITE3(DEV_STDOUT, iy, ix) ; output the moved characters
-        MOVE_CURSOR_TO_THE_LEFT()
+        call move_cursor_to_the_left
         jp _handle_new_input
 __delete_at_the_end:  ; CASE 3: curser was at the end of the line
         dec a                    
@@ -304,35 +304,62 @@ __delete_at_the_end:  ; CASE 3: curser was at the end of the line
         ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
         dec a
         ld (linebuffer_offset), a
-        MOVE_CURSOR_TO_THE_LEFT() 
+        call move_cursor_to_the_left
         S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the deleted char with " "
-        MOVE_CURSOR_TO_THE_LEFT()                ; curser to the new position
+        call move_cursor_to_the_left             ; curser to the new position
         jp _handle_new_input
+
+        ; ---------------------------------------------------------------------
+        ; PRIVATE_FUNCTIONS (all to be call'ed)
+        ; ---------------------------------------------------------------------
+
+
+        ; move_cursor_to_the_left
+        ;   It assumes that your current coursor position is stored in 
+        ;   cursor_position. It moves the cursor left, and if there is
+        ;   no left it puts the cursor to the end of the line above.
+        ; Returns:
+        ;   A  - ERR_SUCCESS on success, error value else
+        ; Alters:
+        ;   A, BC, DE
+move_cursor_to_the_left:
+        ld b, h                  ; B is unused: store old H
+        ld de, (cursor_position) ; load
+        ld a, e                  ; and swap
+        ld e, d
+        ld d, a
+        dec d
+        jr nz, _set_cursor
+                dec e            ; move cursor in the line above
+                ld a, (screen_area + area_width_t)
+                dec a
+                ld d, a          ; set cursor in the end of the line
+_set_cursor:
+        ld h, DEV_STDOUT
+        ld c, CMD_SET_CURSOR_XY
+        IOCTL()
+        ld h, b                  ; restore H value
+        ret
 
         ; ---------------------------------------------------------------------
         ; ERROR HANDLING ROUTINES
         ; ---------------------------------------------------------------------
 print_stdin_raw_error_and_fatalloop:
         S_WRITE3(DEV_STDOUT, _set_stdin_raw_error, _set_stdin_raw_error_end - _set_stdin_raw_error)        
-        jp print_fatal_error_loop
+        jp fatal_error_loop
+
+print_screen_area_error_and_fatalloop:
+        S_WRITE3(DEV_STDOUT, _screen_area_error, _screen_area_error_end - _screen_area_error)
+        jp fatal_error_loop
 
 print_cursor_read_error_and_fatalloop:
         S_WRITE3(DEV_STDOUT, _cursor_read_error, _cursor_read_error_end - _cursor_read_error)        
-        jr print_fatal_error_loop
+        jr fatal_error_loop
 
 print_requested_to_much_buffer_and_return:
         S_WRITE3(DEV_STDOUT, _requested_to_much, _requested_to_much_end - _requested_to_much)
         ret
 
-        ; "fatal_error" prints out error and terminates
-        ; Parameters:
-        ;       DE - error string
-        ;       BC - error string length
-        ; Returns:
-        ;       does not return
-print_fatal_error_loop:
-        ld h, DEV_STDOUT
-	    WRITE()
 fatal_error_loop: ; just terminate
         halt
 
@@ -343,6 +370,15 @@ fatal_error_loop: ; just terminate
 default_prompt:             defm "zealline> "
 default_prompt_length:      defs 1, 10           ; TODO we can later allow to modify this prompt
 whitespace_char:            defm " "
+
+_screen_area_error: DEFM "error: cant read the screen area\n"
+_screen_area_error_end:
+_requested_to_much: DEFM "error: you can not request more bytes then MAX_LINE_LENGTH\n"
+_requested_to_much_end:
+_cursor_read_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
+_cursor_read_error_end:
+_set_stdin_raw_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
+_set_stdin_raw_error_end:
 
         ; ---------------------------------------------------------------------
         SECTION BSS
@@ -355,10 +391,4 @@ linebuffer_offset:          defs 1
 linebuffer_size:            defs 1
 kb_flags:                   defs 1 ; store shift and caps lock, etc
 cursor_position:            defs 2 ; x: Low Byte // y: High Byte
-
-_requested_to_much: DEFM "error: you can not request more bytes then MAX_LINE_LENGTH\n"
-_requested_to_much_end:
-_cursor_read_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
-_cursor_read_error_end:
-_set_stdin_raw_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
-_set_stdin_raw_error_end:
+screen_area:                defs 4 ; area_t
