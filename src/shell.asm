@@ -22,6 +22,7 @@ main:
     ld (command_length), bc ; store read out data to command_length for the check
 
     call OutputNewline
+    call OutputNewline
 
     ; output read command
     ld de, command
@@ -31,6 +32,12 @@ main:
     ld de, _debug_command_message
     ld bc, _debug_command_message_end - _debug_command_message
     WRITE()
+
+    ; print it as a memory dump
+    ld bc, (command_length)
+    ld de, command
+    call OutputMemoryAtDE
+    call OutputRegisters
 
 _check_for_exit:
     ld a, (command_length) ; ignore the high byte
