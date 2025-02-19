@@ -300,10 +300,13 @@ __delete_somewhere_in_the_middle: ; <= Case 2
         jp _handle_new_input
 __delete_at_the_end:  ; CASE 3: curser was at the end of the line
         dec a                    
-        ld (linebuffer_size), a  ; remove last char from linebuffer
+        ld (linebuffer_size), a                  ; remove last char from linebuffer
+        ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
+        dec a
+        ld (linebuffer_offset), a
         MOVE_CURSOR_TO_THE_LEFT() 
         S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the deleted char with " "
-        MOVE_CURSOR_TO_THE_LEFT() ; curser to the new position
+        MOVE_CURSOR_TO_THE_LEFT()                ; curser to the new position
         jp _handle_new_input
 
         ; ---------------------------------------------------------------------
