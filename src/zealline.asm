@@ -105,10 +105,10 @@
                 ld c, a                             ; save Register A in C, C is now the entered Scancode
                 ld a, (linebuffer_size)
                 inc a                               ; increase the linebuffer size by one!
-                push af                             ; remember increased linebuffer size
                 cp MAX_LINE_LENGTH
                 jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
+                push af                             ; remember increased linebuffer size
                 ld hl, linebuffer                   ; load the address of the linebuffer
                 ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
                 push af                             ; STORE linebuffer_offset on stack
