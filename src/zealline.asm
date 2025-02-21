@@ -270,12 +270,10 @@ __copy_line_completed:
         xor a
         ret                        ; returns BC = length, A = 0 (no error)
 _handle_backspace_event:
-        STORE_CURSOR_POS() ; get cursor position
-        ld a, (default_prompt_length)
-        ld b, a                 ; load promptlength to B
-        ld a, (cursor_position) ; load x position of Cursor to A
-        sub b
-        jp z, _handle_new_input ; CASE 1: cursor was competly left - ignore this
+        STORE_CURSOR_POS()        ; get cursor position
+        ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
+        or a
+        jp z, _handle_new_input   ; CASE 1: VirtualCursor was competly left - ignore this
         ; Register A is now the position in the linebuffer
         ld c, a                 ; save value to C
         ld a, (linebuffer_size) 
