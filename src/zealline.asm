@@ -327,7 +327,7 @@ move_cursor_to_the_left:
         ld e, d
         ld d, a
         dec d
-        jr nz, _set_cursor
+        jp p, _set_cursor       ; as soon as we have carry we need to switch lines
                 dec e            ; move cursor in the line above
                 ld a, (screen_area + area_width_t)
                 dec a
