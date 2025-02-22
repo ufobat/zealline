@@ -40,10 +40,16 @@
         EXTERN OutputNewline
         EXTERN zealline_to_uppercase
 
-        MACRO STORE_CURSOR_POS _
+        MACRO SAVE_CURSOR_POS _
                 ld de, cursor_position
                 ld h, DEV_STDOUT
                 ld c, CMD_GET_CURSOR_XY
+                IOCTL()
+        ENDM
+
+        MACRO MOVE_CURSOR_POS _
+                ld h, DEV_STDOUT
+                ld c, CMD_SET_CURSOR_XY
                 IOCTL()
         ENDM
 
@@ -222,10 +228,20 @@ __handle_key_pushed_events:
         ON_KEYEVENT_GOTO( KB_CAPS_LOCK,     _handle_capslock )
         ON_KEYEVENT_GOTO( KB_KEY_ENTER,     _handle_enter__complete_line)
         ON_KEYEVENT_GOTO( KB_KEY_BACKSPACE, _handle_backspace_event)
+        ON_KEYEVENT_GOTO( KB_LEFT_ARROW,    _handle_left_arrow)
+        ON_KEYEVENT_GOTO( KB_RIGHT_ARROW,   _handle_right_arrow)
         ON_IGNORED_SCANCODES_GOTO(_handle_new_input) 
         ; everything that reaches this code is a normal scancode
         HANDLE_VISIBLE_SCANCODES()
         jp _handle_new_input       ; read next character
+_handle_left_arrow:
+        SAVE_CURSOR_POS()
+        call move_cursor_to_the_left
+        jp _handle_new_input
+_handle_right_arrow:
+        SAVE_CURSOR_POS()
+        call move_cursor_to_the_right
+        jp _handle_new_input
 _handle_shift_left:
         TOGGLE_KB_FLAG(KB_FLAG_LEFT_SHIFT_BIT)
         jp _handle_new_input
@@ -270,7 +286,7 @@ __copy_line_completed:
         xor a
         ret                        ; returns BC = length, A = 0 (no error)
 _handle_backspace_event:
-        STORE_CURSOR_POS()        ; get cursor position
+        SAVE_CURSOR_POS()        ; get cursor position
         ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
         or a
         jp z, _handle_new_input   ; CASE 1: VirtualCursor was competly left - ignore this
@@ -333,11 +349,31 @@ move_cursor_to_the_left:
                 dec a
                 ld d, a          ; set cursor in the end of the line
 _set_cursor:
-        ld h, DEV_STDOUT
-        ld c, CMD_SET_CURSOR_XY
-        IOCTL()
+        MOVE_CURSOR_POS()
         ld h, b                  ; restore H value
         ret
+
+        ; move_cursor_to_the_right
+        ;   It assumes that your current coursor position is stored in 
+        ;   cursor_position. It moves the cursor right, and if there is
+        ;   no right it puts the cursor to the beginning of the line below.
+        ; Returns:
+        ;   A  - ERR_SUCCESS on success, error value else
+        ; Alters:
+        ;   A, BC, DE
+move_cursor_to_the_right:
+        ld b, h                  ; B is unused: store old H
+        ld de, (cursor_position) ; load
+        ld a, e                  ; and swap
+        ld e, d
+        ld d, a
+        inc d
+        ld a, (screen_area + area_width_t)
+        cp d   ; cmp with end of screeen
+        jr nz, _set_cursor
+                inc e            ; move cursor in the line below
+                ld d, 0          ; set cursor in the beginning of the line
+        jr _set_cursor
 
         ; ---------------------------------------------------------------------
         ; ERROR HANDLING ROUTINES
