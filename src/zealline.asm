@@ -236,10 +236,24 @@ __handle_key_pushed_events:
         jp _handle_new_input       ; read next character
 _handle_left_arrow:
         SAVE_CURSOR_POS()
+        ; boundary check with linebuffer_offset and 0
+        ld a, (linebuffer_offset)
+        dec a
+        jp m, _handle_new_input
+        ld (linebuffer_offset), a
         call move_cursor_to_the_left
         jp _handle_new_input
 _handle_right_arrow:
         SAVE_CURSOR_POS()
+        ; boundary check with linebuffer_offset and linebuffer_length
+        ld a, (linebuffer_offset)
+        inc a
+        ld b, a
+        ld a, (linebuffer_size)
+        cp b
+        jp c, _handle_new_input
+        ld a, b
+        ld (linebuffer_offset), a
         call move_cursor_to_the_right
         jp _handle_new_input
 _handle_shift_left:
