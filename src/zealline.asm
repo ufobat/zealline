@@ -115,12 +115,6 @@
                 jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
                 push af                             ; remember increased linebuffer size
-                ld hl, linebuffer                   ; load the address of the linebuffer
-                ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
-                push af                             ; STORE linebuffer_offset on stack
-                ld d, 0                             ; it is only 1 byte, so set D to 0
-                ld e, a                             ; and set (D)E to A, because of addition to HL
-                add hl, de                          ; goto cursor position
                 ; Uppercase Test
                 ld a, (kb_flags)
                 and KB_FLAG_ANY_UPPERCASE           ; Check if any shift or capslock was set
@@ -131,6 +125,14 @@
                 jp z, _handle_new_input             ; a holds a nullbyte if there is no uppercase available
                 ld c, a                             ; load uppercase char into into C
         _no_upper_case:
+                                ld hl, linebuffer                   ; load the address of the linebuffer
+                                ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
+                                push af                             ; STORE linebuffer_offset on stack
+                                ld d, 0                             ; it is only 1 byte, so set D to 0
+                                ld e, a                             ; and set (D)E to A, because of addition to HL
+                                add hl, de                          ; goto cursor position        
+                ; char needs to be placed at (HL)
+                ; so make space for it
                 ld (hl), c                          ; write the char in C to the linebuffer
 
                 pop af                              ; GET linebuffer_offset from stack
