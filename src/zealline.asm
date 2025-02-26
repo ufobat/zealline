@@ -356,25 +356,32 @@ _handle_backspace_event:
         ld c, a                 ; save value to C
         ld a, (linebuffer_size) 
         cp c ; if zeroflag is set we're deleting from the end
-        jr z, __delete_at_the_end ; <= Case 3
-__delete_somewhere_in_the_middle: ; <= Case 2
+        jr z, __backspace_at_the_end ; <= Case 3
+__backspace_somewhere_in_the_middle: ; <= Case 2
         dec a
         ld (linebuffer_size), a  ; we loose one character
-        ; c is till the position wherewe loose a char
+        inc a                    ; keep a without a change for later.
+        ; c is till the position where we loose a char
         ld b, 0
-        ld de, bc    ; prepare destination
-        ld hl, de
-        inc hl       ; source is just 1 byte away.
-        sub c        ; a hols the length, substrect the position => a == bytes to copy
+        ld hl, linebuffer    ; prepare destination
+        add hl, bc           ; hl = linebuffer + bc
+        ld de, hl
+        dec de               ; de = linebuffer + bc - 1
+        sub c        ; a holds the length, substrect the position => a will be the number of bytes to copy
         ld c, a      ; store in c
         ld b, 0      ; bc is now the number of bytes to copy
         ld ix, bc    ; store bc in IX for later!
         ld iy, de    ; store DE in IY for later!
-        ldir ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
-        S_WRITE3(DEV_STDOUT, iy, ix) ; output the moved characters
+        ldir        ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
         call move_cursor_to_the_left
+        S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
+        S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the char that was deleted
+        call move_cursor_to_the_left
+        ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
+        dec a
+        ld (linebuffer_offset), a
         jp _handle_new_input
-__delete_at_the_end:  ; CASE 3: curser was at the end of the line
+__backspace_at_the_end:  ; CASE 3: curser was at the end of the line
         dec a                    
         ld (linebuffer_size), a                  ; remove last char from linebuffer
         ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
