@@ -112,7 +112,7 @@
                 cp MAX_LINE_LENGTH
                 jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
-                push af                             ; remember increased linebuffer size
+                ld iyh, a                           ; remember increased linebuffer size
                 ld b, c                             ; temp save character in b
                 SAVE_CURSOR_POS()                   ; get cursor position
                 ld c, b
@@ -167,7 +167,7 @@
                 ld (charbuffer), a                  ; write the character to the charbuffer
                 S_WRITE3(DEV_STDOUT, charbuffer, 1) ; output it to the screen
 
-                pop af                              ; restore saved increased linebuffer size
+                ld a, iyh                           ; restore saved increased linebuffer size
                 ld (linebuffer_size), a             ; store the increased linebuffer size
 
                 ld b, a
