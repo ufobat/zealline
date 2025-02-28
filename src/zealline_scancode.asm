@@ -8,7 +8,7 @@
         ; "zealline_to_uppercase" reads a line/command from STDIN
         ;   Converts a Zeal Scancode in Register B to its uppercase
         ; Parameters:
-        ;   C - the lowercase Zeal OS scancode
+        ;   B - the lowercase Zeal OS scancode
         ; Returns:
         ;   A  - In uppercase or Null if no uppercase is avaible
         ; Alters:
@@ -16,6 +16,7 @@
 zealline_to_uppercase:
         push hl
         push bc
+        ld c, b
         ld b, 0 ; set the high byte to 0
         ld hl, upper_case
         add hl, bc ; plus C

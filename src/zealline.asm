@@ -40,6 +40,8 @@
         EXTERN OutputNewline
         EXTERN zealline_to_uppercase
 
+        ; Stores the Position of the Cursor
+        ; Alters: DE, HL, C, A
         MACRO SAVE_CURSOR_POS _
                 ld de, cursor_position
                 ld h, DEV_STDOUT
@@ -63,7 +65,7 @@
         ENDM
 
         ; Saves the screen area at memory location 'screen_area'
-        ; Modifies: A, C, DE, H
+        ; Alters: A, C, DE, H
         MACRO GET_SCREEN_AREA__ON_ERROR on_error_lable
                 ld de, screen_area
                 ld h, DEV_STDOUT
@@ -104,138 +106,8 @@
                 jr nz, lable
         ENDM
 
-        MACRO HANDLE_VISIBLE_SCANCODES _
-                ;Boundary Check
-                ld c, a                             ; save Register A in C, C is now the entered Scancode
-                ld a, (linebuffer_size)
-                inc a                               ; increase the linebuffer size by one!
-                cp MAX_LINE_LENGTH
-                jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
-                                                    ; !! because the linebuffer is full - no appending!
-                ld iyh, a                           ; remember increased linebuffer size
-                ld b, c                             ; temp save character in b
-                SAVE_CURSOR_POS()                   ; get cursor position
-                ld c, b
-                ; Uppercase Test
-                ld a, (kb_flags)
-                and KB_FLAG_ANY_UPPERCASE           ; Check if any shift or capslock was set
-                jr z, __no_upper_case
-                ; Convert to Uppercase
-                call zealline_to_uppercase          ; converts char in register C into uppercase in A
-                or a
-                jp z, _handle_new_input             ; a holds a nullbyte if there is no uppercase available
-                ld c, a                             ; load uppercase char into into C
-        __no_upper_case:
-                ld a, (linebuffer_size)
-                ld b, a
-
-                ld a, (linebuffer_offset)
-                ld b, a
-                ld a, (linebuffer_size)
-                and a  ; clear carry flag if set!
-                sbc b  ; a(number of characters to copy) = a(linebuffer_size) - (b)linebuffer_offset
-                jp z, __copy_add_character_completed
-                        ; copy stuff
-                        ld b, a    ; set b to number_of_caracters_to_copy
-                        ld ix, bc  ; STORE somewhere else b=number_of_chars_to_copy, c=character_to_append
-                        ld a, (linebuffer_size)
-                        ld b, 0
-                        ld c, a ; bc = a
-                        ld hl, linebuffer
-                        add hl, bc
-                        ld de, hl   ; de is end_of_linebuffer + 1
-                        dec hl      ; hl = end_of_linebuffer := linebuffer + length - 1
-                        ld bc, ix   ; RESTORE bc;
-                        ld c, b
-                        ld b, 0     ; bc == number of chars to copy
-                        lddr        ; copy all bytes!
-                        ld bc, ix   ; RESTORE bc because c == char to append
-        __copy_add_character_completed:
-                ld hl, linebuffer                   ; load the address of the linebuffer
-                ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
-                ld d, 0                             ; it is only 1 byte, so set D to 0
-                ld e, a                             ; and set (D)E to A, because of addition to HL
-                add hl, de                          ; goto cursor position
-                ; char needs to be placed at (HL)
-                ; so make space for it
-                ld (hl), c                          ; write the char in C to the linebuffer
-
-                inc a                               ; move the cursor one step forward
-                ld (linebuffer_offset), a           ; store A back
-
-                ld a, c                             ; restore the caracter in C back to A in order to
-                ld (charbuffer), a                  ; write the character to the charbuffer
-                S_WRITE3(DEV_STDOUT, charbuffer, 1) ; output it to the screen
-
-                ld a, iyh                           ; restore saved increased linebuffer size
-                ld (linebuffer_size), a             ; store the increased linebuffer size
-
-                ld b, a
-                ld a, (linebuffer_offset)
-                sub b
-                jp z, _handle_new_input             ; if linebuffer_offset == linebuffer_size
-                                                    ; then no copied characters needs to be printed out
-                neg a                               ; a is now the number of chars to print out
-                ld c, a
-                ld b, 0                             ; bc == length to print
-                ld hl, linebuffer
-                ld a, (linebuffer_offset)           ; load the linebuffer_offset into a
-                ld d, 0                             ; it is only 1 byte, so set D to 0
-                ld e, a                             ; and set (D)E to A, because of addition to HL
-                add hl, de                          ; goto cursor position
-                ;dec hl
-                ;call OutputRegisters
-                ld de, hl
-                ;call OutputMemoryAtDE
-                S_WRITE1(DEV_STDOUT)            ; S_WRITE2 uses BC as lenght
-                call move_cursor_to_the_right
-        ENDM
-
-        MACRO HANDLE_BACKSPACE_EVENT _
-                SAVE_CURSOR_POS()        ; get cursor position
-                ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
-                or a
-                jp z, _handle_new_input   ; CASE 1: VirtualCursor was competly left - ignore this
-                ; Register A is now the position in the linebuffer
-                ld c, a                 ; save value to C
-                ld a, (linebuffer_size)
-                cp c ; if zeroflag is set we're deleting from the end
-                jr z, __backspace_at_the_end ; <= Case 3
-        __backspace_somewhere_in_the_middle: ; <= Case 2
-                dec a
-                ld (linebuffer_size), a  ; we loose one character
-                inc a                    ; keep a without a change for later.
-                ; c is till the position where we loose a char
-                ld b, 0
-                ld hl, linebuffer    ; prepare destination
-                add hl, bc           ; hl = linebuffer + bc
-                ld de, hl
-                dec de               ; de = linebuffer + bc - 1
-                sub c        ; a holds the length, substrect the position => a will be the number of bytes to copy
-                ld c, a      ; store in c
-                ld b, 0      ; bc is now the number of bytes to copy
-                ld ix, bc    ; store bc in IX for later!
-                ld iy, de    ; store DE in IY for later!
-                ldir        ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
-                call move_cursor_to_the_left
-                S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
-                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the char that was deleted
-                call move_cursor_to_the_left
-                ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
-                dec a
-                ld (linebuffer_offset), a
-                jp _handle_new_input
-        __backspace_at_the_end:  ; CASE 3: curser was at the end of the line
-                dec a
-                ld (linebuffer_size), a                  ; remove last char from linebuffer
-                ld a, (linebuffer_offset)                ; set linebuffer_offset also one to the left
-                dec a
-                ld (linebuffer_offset), a
-                call move_cursor_to_the_left
-                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the deleted char with " "
-                call move_cursor_to_the_left             ; curser to the new position
-        ENDM
-
+        ; setup linebuffer for new input
+        ; Alters: A
         MACRO INITIALIZE_LINEBUFFER_VARIABLES _
                 or a  ; set a to 0
                 ld (linebuffer_offset), a
@@ -251,6 +123,156 @@
                 ld a, (kb_flags)
                 xor 1 << flag
                 ld (kb_flags), a
+        ENDM
+
+        ; GET_LINEBUFFER_AT_OFFSET
+        ; Alters: A, DE
+        ; Returns:
+        ;       HL - position in linebuffer
+        MACRO GET_LINEBUFFER_AT_OFFSET _
+                ld hl, linebuffer
+                ld a, (linebuffer_offset)
+                ld d, 0
+                ld e, a
+                add hl, de
+        ENDM
+
+        ; GET_LINEBUFFER_AT_LASTCHAR
+        ; Alters: A, DE
+        ; Returns:
+        ;       HL - position in linebuffer
+        MACRO GET_LINEBUFFER_AT_LASTCHAR _
+                ld hl, linebuffer
+                ld a, (linebuffer_size)
+                dec a
+                ld d, 0
+                ld e, a
+                add hl, de
+        ENDM
+
+        ; Moves Virtual Position one to the left
+        ; Returns:
+        ;       A - value in linebuffer_offset
+        MACRO DEC_LINEBUFFER_OFFSET _
+                ld a, (linebuffer_offset)
+                dec a
+                ld (linebuffer_offset), a
+        ENDM
+
+        ; Moves Virtual Position one to the right
+        ; Returns:
+        ;       A - value in linebuffer_offset
+        MACRO INC_LINEBUFFER_OFFSET _
+                ld a, (linebuffer_offset)
+                inc a
+                ld (linebuffer_offset), a
+        ENDM
+
+        ; decrease linebuffer_size by one
+        ; Returns:
+        ;       A - value in linebuffer_size
+        MACRO DEC_LINEBUFFER_SIZE _
+                ld a, (linebuffer_size)
+                dec a
+                ld (linebuffer_size), a
+        ENDM
+
+        ; increase linebuffer_size by one
+        ; Returns:
+        ;       A - value in linebuffer_size
+        MACRO INC_LINEBUFFER_SIZE _
+                ld a, (linebuffer_size)
+                inc a
+                ld (linebuffer_size), a
+        ENDM
+
+        MACRO HANDLE_VISIBLE_SCANCODES _
+                ;Boundary Check
+                ld b, a                             ; save Register A in B, B is now the entered Scancode
+                ld a, (linebuffer_size)
+                inc a                               ; increase the linebuffer size by one!
+                cp MAX_LINE_LENGTH
+                jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
+                                                    ; !! because the linebuffer is full - no appending!
+                SAVE_CURSOR_POS()                   ; get cursor position
+                ; Uppercase Test
+                ld a, (kb_flags)
+                and KB_FLAG_ANY_UPPERCASE           ; Check if any shift or capslock was set
+                jr z, __no_upper_case
+                        ; Convert to Uppercase
+                        call zealline_to_uppercase      ; converts char in register B into uppercase in A
+                        or a
+                        jp z, _handle_new_input         ; a holds a nullbyte if there is no uppercase available
+                        ld b, a                         ; load uppercase char into into B
+        __no_upper_case:
+                ld a, (linebuffer_offset)
+                ld c, a
+                ld a, (linebuffer_size)
+                sub c                                   ; a(number of characters to copy) = a(linebuffer_size) - (c)linebuffer_offset
+                ld c, a                                 ; set C to number_of_characters_to_copy
+                ld ix, bc                               ; STORE somewhere else ixh/b=character_to_append, ixl/c=number_of_characters_to_copy
+                jp z, __copy_add_character_completed
+                        ; create room in the linebuffer for the newly entered character
+                        GET_LINEBUFFER_AT_LASTCHAR()    ; alters registers A and DE
+                        ld de, hl
+                        inc de                          ; de is end_of_linebuffer + 1
+                        ld b, 0                         ; bc == number of chars to copy
+                        lddr                            ; copy all bytes!
+        __copy_add_character_completed:
+                GET_LINEBUFFER_AT_OFFSET()              ; alters registers A and DE
+                ; char needs to be placed at (HL)
+                ; so make space for it
+                ld a, ixh
+                ld (hl), a                              ; write the char in A to the linebuffer
+                ld (charbuffer), a                      ; write the char in A to the charbuffer
+                S_WRITE3(DEV_STDOUT, charbuffer, 1)     ; output it to the screen / Alters: BC, DE, HL
+                INC_LINEBUFFER_SIZE()
+                INC_LINEBUFFER_OFFSET()
+                ld b, a                                 ; b := linebuffer_offset
+                ld a, (linebuffer_size)
+                sub b                                   ; a := linebuffer_size - linebuffer_offset => number of relocated characters
+                jp z, _handle_new_input                 ; if linebuffer_offset == linebuffer_size
+                                                        ; then no copied characters needs to be printed out
+                ld c, a
+                ld b, 0                                 ; bc == length to print
+                GET_LINEBUFFER_AT_OFFSET()              ; alters registers A and DE
+                ld de, hl                               ; we can't use S_WRITE2(DEV_STDOUT, hl) because it alters HL before setting DE to HL
+                S_WRITE1(DEV_STDOUT)                    ; S_WRITE1 uses BC as lenght
+                call move_cursor_to_the_right
+        ENDM
+
+        MACRO HANDLE_BACKSPACE_EVENT _
+                SAVE_CURSOR_POS()         ; get cursor position
+                ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
+                or a
+                jp z, _handle_new_input   ; CASE 1: VirtualCursor was competly left - ignore this
+                ; Register A is now the position in the linebuffer
+                ld c, a                 ; save value to C
+                ld a, (linebuffer_size)
+                sub c ; if zeroflag is set we're deleting from the end
+                jr z, __backspace_at_the_end ; <= Case 3
+        __backspace_somewhere_in_the_middle: ; <= Case 2
+                ld b, 0
+                ld c, a                         ; bc == a := length of bytes to copy
+                GET_LINEBUFFER_AT_OFFSET()      ; alters registers A and DE
+                ld de, hl
+                dec de                          ; de = linebuffer_at_offset - 1
+                ld ix, bc                       ; store bc in IX for later!
+                ld iy, de                       ; store DE in IY for later!
+                ldir                            ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
+                call move_cursor_to_the_left
+                S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
+                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the char that was deleted
+                call move_cursor_to_the_left
+                DEC_LINEBUFFER_OFFSET()
+                DEC_LINEBUFFER_SIZE()
+                jp _handle_new_input
+        __backspace_at_the_end:  ; CASE 3: curser was at the end of the line
+                call move_cursor_to_the_left
+                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the deleted char with " "
+                call move_cursor_to_the_left             ; curser to the new position
+                DEC_LINEBUFFER_OFFSET()
+                DEC_LINEBUFFER_SIZE()
         ENDM
 
         ; "zline_get_line" reads a line/command from STDIN
@@ -294,7 +316,6 @@ zline_get_line:
         ;   * STRG+r search in history.
         ;   * key up and key down (browse in history)
 
-        ; setup linebuffer for new input
         INITIALIZE_LINEBUFFER_VARIABLES()
 _handle_new_input:
         S_READ3(DEV_STDIN, readbuffer, READBUFFER_SIZE) ; sets DE to readbuffer
