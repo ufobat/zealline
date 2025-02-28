@@ -34,13 +34,14 @@
         DEFC KB_FLAG_RIGHT_SHIFT_BIT  = 1
         DEFC KB_FLAG_LEFT_SHIFT_BIT   = 0
         DEFC KB_FLAG_ANY_UPPERCASE    = (1 << KB_FLAG_LEFT_SHIFT_BIT) + (1 << KB_FLAG_RIGHT_SHIFT_BIT) + (1 << KB_FLAG_CAPSLOCK_BIT)
+        DEFC KB_FLAG_ANY_CTRL         = (1 << KB_FLAG_LEFT_CTRL_BIT) + (1 << KB_FLAG_RIGHT_CTRL_BIT)
 
         EXTERN OutputRegisters
         EXTERN OutputMemoryAtDE
         EXTERN OutputNewline
         EXTERN zealline_to_uppercase
 
-        ; Stores the Position of the Cursor
+        ; Stores the Position of the cursor to RAM
         ; Alters: DE, HL, C, A
         MACRO SAVE_CURSOR_POS _
                 ld de, cursor_position
@@ -49,6 +50,19 @@
                 IOCTL()                  ; And Register L
         ENDM
 
+        ; Loads the Position of the cursor to DE
+        ; Alters A
+        ; Returns:
+        ;       DE - d=x-coordinate e=y-coordinate
+        MACRO LOAD_CURSOR_SWAPPED _
+                ld de, (cursor_position)        ; load cursor position
+                ld a, e                         ; and swap
+                ld e, d
+                ld d, a
+        ENDM
+
+        ; Moves the cursor on the screen to the position in DE
+        ; Alters: HL, BC
         MACRO MOVE_CURSOR_POS _
                 ld h, DEV_STDOUT
                 ld c, CMD_SET_CURSOR_XY
@@ -125,6 +139,17 @@
                 ld (kb_flags), a
         ENDM
 
+        ; checks if ctrl key is currently pressed
+        ; if so we goto lable in order to handle special key combinations
+        ; Alters: IX
+        MACRO ON_CTRL_MODE_GOTO lable
+                ld ixl, a               ; A contains the entered character, preserve it!
+                ld a, (kb_flags)
+                and KB_FLAG_ANY_CTRL
+                ld a, ixl
+                jp nz, lable
+        ENDM
+
         ; GET_LINEBUFFER_AT_OFFSET
         ; Alters: A, DE
         ; Returns:
@@ -192,7 +217,7 @@
                 ld a, (linebuffer_size)
                 inc a                               ; increase the linebuffer size by one!
                 cp MAX_LINE_LENGTH
-                jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
+                jp z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
                 SAVE_CURSOR_POS()                   ; get cursor position
                 ; Uppercase Test
@@ -281,7 +306,6 @@
         ;   While MAX_LINE_LENGTH is your line buffer size it still does only
         ;   return the first b bytes.
         ;   TODO:
-        ;     - special key combinations
         ;     - manage a history
         ;     - call tab completions functions
         ; Parameters:
@@ -302,6 +326,7 @@ zline_get_line:
         jp nc, print_requested_to_much_buffer_and_return
         SET_STDIN_TO_RAW__ON_ERROR(print_stdin_raw_error_and_fatalloop)
         GET_SCREEN_AREA__ON_ERROR(print_screen_area_error_and_fatalloop)
+_print_prompt:
         PRINT_PROMPT()
         ; STORE_CURSOR_POS__ON_ERROR(print_cursor_read_error_and_fatalloop)
         ; SO WHAT TO DO?
@@ -345,8 +370,58 @@ _handle_key_pushed_events:
         ON_KEYEVENT_GOTO( KB_RIGHT_ARROW,   _handle_right_arrow)
         ON_IGNORED_SCANCODES_GOTO(_handle_new_input) 
         ; everything that reaches this code is a normal scancode
+        ON_CTRL_MODE_GOTO( _handle_ctrl_mode)
         HANDLE_VISIBLE_SCANCODES()
         jp _handle_new_input       ; read next character
+_handle_ctrl_mode:
+        ; handle keystrokes in combination with CTRL
+        ON_KEYEVENT_GOTO( 'a',              _handle_ctrl_a )
+        ON_KEYEVENT_GOTO( 'e',              _handle_ctrl_e )
+        ON_KEYEVENT_GOTO( 'c',              _handle_ctrl_c )
+        jp _handle_new_input
+_handle_ctrl_a:
+        ; Move cursor to the far left
+        SAVE_CURSOR_POS()
+        ld a, (screen_area + area_width_t)
+        ld b, a                         ; divisor is the screen_area width
+        ld a, (linebuffer_offset)       ; dividend
+        call divide_and_modulo          ; B = A / B and C =A % B
+        LOAD_CURSOR_SWAPPED()
+        ld a, d                         ; apply modulo on x-axis
+        sub b
+        ld d, a
+        ld a, e                         ; apply quotient on y-axis
+        sub c
+        ld e, a
+        MOVE_CURSOR_POS()
+        ld a, 0
+        ld (linebuffer_offset), a
+        jp _handle_new_input
+_handle_ctrl_e:
+        ; Move cursor to the far right
+        SAVE_CURSOR_POS()
+        ld a, (screen_area + area_width_t)
+        ld b, a                         ; B := divisor is the screen_area width
+        ld a, (linebuffer_offset)
+        ld c, a
+        ld a, (linebuffer_size)
+        sub c                           ; A := steps to the right = linebuffer_size - linebuffer_offset
+        call divide_and_modulo          ; B = A / B and C =A % B
+        LOAD_CURSOR_SWAPPED()
+        ld a, d                         ; apply modulo on x-axis
+        add b
+        ld d, a
+        ld a, e                         ; apply quotient on y-axis
+        add c
+        ld e, a
+        MOVE_CURSOR_POS()
+        ld a, (linebuffer_size)
+        ld (linebuffer_offset), a
+        jp _handle_new_input
+_handle_ctrl_c:
+        ; Abort this command
+        S_WRITE3(DEV_STDOUT, newline_char, 1)   ; print newline
+        jp _print_prompt                        ; print prompt
 _handle_left_arrow:
         SAVE_CURSOR_POS()
         ; boundary check with linebuffer_offset and 0
@@ -419,6 +494,25 @@ _handle_backspace_event:
         ; ---------------------------------------------------------------------
         ; PRIVATE_FUNCTIONS (all to be call'ed)
         ; ---------------------------------------------------------------------
+
+
+        ; divide_and_modulo
+        ; calculates A / B as well as A % B
+        ; Alters: A
+        ; Returns:
+        ;       B - A % B
+        ;       C - A / B
+divide_and_modulo:
+        ld c, 0
+__division:
+        sub b
+        jr c, __modulo
+        inc c
+        jr __division
+__modulo:
+        add b                           ; we did one substraction to much that we have to fix
+        ld b, a                         ; store the modulo value in b, while c is the quotient
+        ret
 
 
         ; move_cursor_to_the_left
@@ -498,6 +592,7 @@ fatal_error_loop: ; just terminate
 default_prompt:             defm "zealline> "
 default_prompt_length:      defs 1, 10           ; TODO we can later allow to modify this prompt
 whitespace_char:            defm " "
+newline_char:               defm "\n"
 
 _screen_area_error: DEFM "error: cant read the screen area\n"
 _screen_area_error_end:
