@@ -34,6 +34,7 @@
         DEFC KB_FLAG_RIGHT_SHIFT_BIT  = 1
         DEFC KB_FLAG_LEFT_SHIFT_BIT   = 0
         DEFC KB_FLAG_ANY_UPPERCASE    = (1 << KB_FLAG_LEFT_SHIFT_BIT) + (1 << KB_FLAG_RIGHT_SHIFT_BIT) + (1 << KB_FLAG_CAPSLOCK_BIT)
+        DEFC KB_FLAG_ANY_CTRL         = (1 << KB_FLAG_LEFT_CTRL_BIT) + (1 << KB_FLAG_RIGHT_CTRL_BIT)
 
         EXTERN OutputRegisters
         EXTERN OutputMemoryAtDE
@@ -125,6 +126,17 @@
                 ld (kb_flags), a
         ENDM
 
+        ; checks if ctrl key is currently pressed
+        ; if so we goto lable in order to handle special key combinations
+        ; Alters: IX
+        MACRO ON_CTRL_MODE_GOTO lable
+                ld ixl, a               ; A contains the entered character, preserve it!
+                ld a, (kb_flags)
+                and KB_FLAG_ANY_CTRL
+                ld a, ixl
+                jp nz, lable
+        ENDM
+
         ; GET_LINEBUFFER_AT_OFFSET
         ; Alters: A, DE
         ; Returns:
@@ -192,7 +204,7 @@
                 ld a, (linebuffer_size)
                 inc a                               ; increase the linebuffer size by one!
                 cp MAX_LINE_LENGTH
-                jr z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
+                jp z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
                 SAVE_CURSOR_POS()                   ; get cursor position
                 ; Uppercase Test
@@ -345,8 +357,18 @@ _handle_key_pushed_events:
         ON_KEYEVENT_GOTO( KB_RIGHT_ARROW,   _handle_right_arrow)
         ON_IGNORED_SCANCODES_GOTO(_handle_new_input) 
         ; everything that reaches this code is a normal scancode
+        ON_CTRL_MODE_GOTO( _handle_ctrl_mode)
         HANDLE_VISIBLE_SCANCODES()
         jp _handle_new_input       ; read next character
+_handle_ctrl_mode:
+        ; handle keystrokes in combination with CTRL
+        ON_KEYEVENT_GOTO( 'a',              _handle_ctrl_a )
+        ON_KEYEVENT_GOTO( 'e',              _handle_ctrl_e )
+        ON_KEYEVENT_GOTO( 'c',              _handle_ctrl_c )
+        jp _handle_new_input
+_handle_ctrl_a:
+_handle_ctrl_c:
+_handle_ctrl_e:
 _handle_left_arrow:
         SAVE_CURSOR_POS()
         ; boundary check with linebuffer_offset and 0
