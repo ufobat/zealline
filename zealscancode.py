@@ -23,6 +23,7 @@ dispatch = {
     ':': ';',
     '`': '"',
     '=': '+',
+    ' ': ' ', 
 }
 def defbyte(offset):
     end = "," if (offset + 1) % 16 else ""
