@@ -367,6 +367,34 @@ _handle_ctrl_mode:
         ON_KEYEVENT_GOTO( 'c',              _handle_ctrl_c )
         jp _handle_new_input
 _handle_ctrl_a:
+        ; Move cursor to the left
+        SAVE_CURSOR_POS()
+        ld c, 0                         ; counter for cursor y-offset
+        ld a, (screen_area + area_width_t)
+        ld b, a                         ; divisor is the screen_area width
+        ld a, (linebuffer_offset)       ; dividend
+__division:
+        sub b
+        jr c, __modulo
+        inc c
+        jr __division
+__modulo:
+        add b                           ; we did one substraction to much that we have to fix
+        ld b, a                         ; store the modulo value in b, while c is the quotient
+        ld de, (cursor_position)        ; load cursor position
+        ld a, e                         ; and swap
+        ld e, d
+        ld d, a                         ; d=x-coordinate e=y-coordinate
+        ld a, d                         ; apply modulo on x-axis
+        sub b
+        ld d, a
+        ld a, e                         ; apply quotient on y-axis
+        sub c
+        ld e, a
+        MOVE_CURSOR_POS()
+        ld a, 0
+        ld (linebuffer_offset), a
+        jp _handle_new_input
 _handle_ctrl_c:
 _handle_ctrl_e:
 _handle_left_arrow:
