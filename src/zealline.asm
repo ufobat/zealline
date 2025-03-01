@@ -306,6 +306,9 @@
         ;   prompt and read the line into your buffer.
         ;   While MAX_LINE_LENGTH is your line buffer size it still does only
         ;   return the first C bytes.
+        ;   The string written to buffer will the null terminated. Keep in mind
+        ;   that the null-byte consumeds one byte so there will only be C-1 characters
+        ;   in DE. 
         ;   TODO:
         ;     - manage a history
         ;     - call tab completions functions
@@ -319,6 +322,7 @@
         ;   A, BC, DE
 zealline_get_line:
         ld b, 0  ; set B to = 0 because we only accept C as length parameter
+        dec c    ; decrease c because we need one byte for the 0-byte
         push de  ; save registers for later
         push bc
         ; check if C is within boundaries: must be not largher then MAX
@@ -484,6 +488,7 @@ __use_c_register:
         jr z, __copy_line_completed
         ld hl, linebuffer          ; source
         ldir                       ; ldir counts down to BC == 0
+        ld (de), 0
         ld c, a                    ; but A still contains the old c value
 __copy_line_completed:
         xor a
