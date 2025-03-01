@@ -70,24 +70,24 @@
                 IOCTL()
         ENDM
 
-        MACRO SET_STDIN_TO_RAW__ON_ERROR on_error_lable
+        MACRO SET_STDIN_TO_RAW__ON_ERROR on_error_label
                 ld h, DEV_STDIN
                 ld c, KB_CMD_SET_MODE
                 ld e, KB_MODE_RAW
                 IOCTL()
                 or a
-                jp nz, on_error_lable
+                jp nz, on_error_label
         ENDM
 
         ; Saves the screen area at memory location 'screen_area'
         ; Alters: A, C, DE, H
-        MACRO GET_SCREEN_AREA__ON_ERROR on_error_lable
+        MACRO GET_SCREEN_AREA__ON_ERROR on_error_label
                 ld de, screen_area
                 ld h, DEV_STDOUT
                 ld c, CMD_GET_AREA
                 IOCTL()
                 or a
-                jp nz, on_error_lable
+                jp nz, on_error_label
         ENDM
 
         MACRO SET_TEXT_COLOR color
@@ -109,16 +109,16 @@
                 SET_TEXT_COLOR(TEXT_COLOR_WHITE)
         ENDM
 
-        MACRO ON_IGNORED_SCANCODES_GOTO lable
+        MACRO ON_IGNORED_SCANCODES_GOTO label
                 cp 0x20                  ; non printable character: 0x20 <= char
-                jr c, lable
+                jr c, label
                 cp 0x80                  ; non printable character: char >= 0x80
-                jr nc, lable
+                jr nc, label
         ENDM
 
-        MACRO ON_KEY_PUSHED_EVENT_GOTO lable
+        MACRO ON_KEY_PUSHED_EVENT_GOTO label
                 cp KB_RELEASED
-                jr nz, lable
+                jr nz, label
         ENDM
 
         ; setup linebuffer for new input
@@ -129,9 +129,9 @@
                 ld (linebuffer_size), a
         ENDM
 
-        MACRO ON_KEYEVENT_GOTO key, lable
+        MACRO ON_KEYEVENT_GOTO key, label
                 cp key
-                jp z, lable
+                jp z, label
         ENDM
 
         MACRO TOGGLE_KB_FLAG flag
@@ -141,14 +141,14 @@
         ENDM
 
         ; checks if ctrl key is currently pressed
-        ; if so we goto lable in order to handle special key combinations
+        ; if so we goto label in order to handle special key combinations
         ; Alters: IX
-        MACRO ON_CTRL_MODE_GOTO lable
+        MACRO ON_CTRL_MODE_GOTO label
                 ld ixl, a               ; A contains the entered character, preserve it!
                 ld a, (kb_flags)
                 and KB_FLAG_ANY_CTRL
                 ld a, ixl
-                jp nz, lable
+                jp nz, label
         ENDM
 
         ; GET_LINEBUFFER_AT_OFFSET
@@ -228,7 +228,7 @@
                         ; Convert to Uppercase
                         call zealline_to_uppercase      ; converts char in register B into uppercase in A
                         or a
-                        jp z, _handle_new_input         ; a holds a nullbyte if there is no uppercase available
+                        jp z, _handle_new_input         ; a holds a nullbyte if there is no uppercase availabel
                         ld b, a                         ; load uppercase char into into B
         __no_upper_case:
                 ld a, (linebuffer_offset)
