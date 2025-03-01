@@ -305,7 +305,7 @@
         ;   This is the main function of this library. It will print your
         ;   prompt and read the line into your buffer.
         ;   While MAX_LINE_LENGTH is your line buffer size it still does only
-        ;   return the first b bytes.
+        ;   return the first C bytes.
         ;   TODO:
         ;     - manage a history
         ;     - call tab completions functions
