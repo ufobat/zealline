@@ -11,9 +11,10 @@
         ; ---------------------------------------------------------------------
         ; PUBLIC INTERFACE
         ; ---------------------------------------------------------------------
-        ; TODO PUBLIC zline_set_prompt
-        ; TODO PUBLIC zline_print_history
-        PUBLIC zline_get_line
+        ; TODO PUBLIC zealline_set_prompt
+        ; TODO PUBLIC zealline_print_history
+        ; TODO PUBLIC zealline_add_history
+        PUBLIC zealline_get_line
         ; ---------------------------------------------------------------------
 
         ; can not be larger then 255 (see the C register of zline_get_line)
@@ -316,7 +317,7 @@
         ;   BC - Number of bytes filled in DE.
         ; Alters:
         ;   A, BC, DE
-zline_get_line:
+zealline_get_line:
         ld b, 0  ; set B to = 0 because we only accept C as length parameter
         push de  ; save registers for later
         push bc

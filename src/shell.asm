@@ -8,7 +8,7 @@
     EXTERN OutputNewline
     EXTERN OutputRegisters
     EXTERN OutputMemoryAtDE
-    EXTERN zline_get_line
+    EXTERN zealline_get_line
 
 main:
     ; read up to 20 bytes of data
@@ -18,7 +18,7 @@ main:
     ld de, command
     ld bc, (command_length)
     
-    call zline_get_line
+    call zealline_get_line
     ld (command_length), bc ; store read out data to command_length for the check
 
     call OutputNewline
