@@ -1,4 +1,4 @@
-; SPDX-FileCopyrightText: 2023 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2023 Zeal 8-bit Computer <contact@zeal8bit.com>, Martin Barth (github:ufobat)
 ;
 ; SPDX-License-Identifier: Apache-2.0
 
@@ -10,65 +10,79 @@
     EXTERN OutputMemoryAtDE
     EXTERN zealline_get_line
 
+    MACRO ON_STREQ str1, str2, label
+        ld de, str1
+        ld hl, str2
+        call strcmp
+        or a
+        jp z, label
+    ENDM
+
 main:
-    ; read up to 20 bytes of data
-    ld hl, 20
-    ld (command_length), hl 
-    ; set parameterss for zline_get_line
+    ; read up to 100 bytes of data
+    ; set parameterss for zealline_get_line
     ld de, command
-    ld bc, (command_length)
+    ld c, 100;
     
     call zealline_get_line
-    ld (command_length), bc ; store read out data to command_length for the check
 
-    call OutputNewline
-    call OutputNewline
+    ld ix, bc       ; store command length
+    S_WRITE3(DEV_STDOUT, newline_char, 1)
+    S_WRITE3(DEV_STDOUT, command, ix)
+    S_WRITE3(DEV_STDOUT, debug_command_message, debug_command_message_end - debug_command_message)
 
-    ; output read command
-    ld de, command
-    ld h, DEV_STDOUT
-    WRITE()
+    ON_STREQ(command, exit_command, exit_program)
+    jp main
 
-    ld de, _debug_command_message
-    ld bc, _debug_command_message_end - _debug_command_message
-    WRITE()
-
-    ; print it as a memory dump
-    ld bc, (command_length)
-    ld de, command
-    call OutputMemoryAtDE
-    call OutputRegisters
-
-_check_for_exit:
-    ld a, (command_length) ; ignore the high byte
-    cp 4
-    jp nz, main
-
-    ld a, (command)
-    cp 'e'
-    jp nz, main
-
-    ld a, (command+1)
-    cp 'x'
-    jp nz, main
-
-    ld a, (command+2)
-    cp 'i'
-    jp nz, main
-
-    ld a, (command+3)
-    cp 't'
-    jp nz, main
-
-    ld a, 0
+exit_program:
+    ld h, 0
     EXIT();
+
+
+        ; Compare two NULL-terminated strings pointed by HL and DE.
+        ; If they are identical, A will be 0
+        ; If DE is greater than HL, A will be positive
+        ; If HL is greater than DE, A will be negative
+        ; Parameters:
+        ;   HL - First NULL-terminated string
+        ;   DE - Second NULL-terminated string
+        ; Returns:
+        ;   A - 0 if both are identical
+        ;       Negative value if HL > DE
+        ;       Positive value if HL < DE
+        ; Alters:
+        ;   A
+        PUBLIC strcmp
+strcmp:
+        push hl
+        push de
+        dec hl
+        dec de
+_strcmp_compare:
+        inc hl
+        inc de
+        ld a, (de)
+        sub (hl)
+        jr nz, _strcmp_end
+        ; Check if both strings have reached the end
+        ; If this is the case, or (hl) will reset in zero flag to be set
+        ; In that case, no need to continue, we can return, with flag Z set
+        or (hl)
+        jr nz, _strcmp_compare
+_strcmp_end:
+        pop de
+        pop hl
+        ret
+
 
     SECTION DATA
 
-_debug_command_message: DEFM " <- this was my command\n"
-_debug_command_message_end:
+debug_command_message: DEFM " <- this was my command\n"
+debug_command_message_end:
+newline_char: defm "\n"
+exit_command: defb "exit", 0
 
     SECTION BCC
-command: defs 30, 0
-command_length: defs 2
+command: defs 100, 0
+prompt_buffer: defs PATH_MAX, 0
 

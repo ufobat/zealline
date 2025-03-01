@@ -1,4 +1,4 @@
-; SPDX-FileCopyrightText: 2023 Zeal 8-bit Computer <contact@zeal8bit.com>
+; SPDX-FileCopyrightText: 2023 Zeal 8-bit Computer <contact@zeal8bit.com>, Martin Barth (github:ufobat)
 ;
 ; SPDX-License-Identifier: Apache-2.0
 
@@ -17,8 +17,8 @@
         PUBLIC zealline_get_line
         ; ---------------------------------------------------------------------
 
-        ; can not be larger then 255 (see the C register of zline_get_line)
-        DEFC MAX_LINE_LENGTH = 80
+        ; can not be larger then 254 (see the C register of zline_get_line)
+        DEFC MAX_LINE_LENGTH = 254
         DEFC READBUFFER_SIZE = 2
 
         DEFC BG_COLOR       = TEXT_COLOR_BLACK
