@@ -5,17 +5,25 @@
 ## Features
 
 * **Line Editing:**
-    * **Ctrl+A:** Move cursor to the beginning of the line.
-    * **Ctrl+E:** Move cursor to the end of the line.
-    * **Ctrl+C:** Cancel the current line input.
+    * **Ctrl+a:** Move cursor to the beginning of the line.
+    * **Ctrl+e:** Move cursor to the end of the line.
+    * **Ctrl+c:** Cancel the current line input.
+
+## TODO
+
 * **History Support:**
-    * Allows users to recall and reuse previously entered commands.
-    * Improves workflow by minimizing repetitive typing.
+    * **Ctrl+r** Search in history.
+    * **Cursor Up/Down** Browse the history.
+* **Prompt Placeholders**
+    * Details are TBD, but so far it could be: CURDIR, TIME, DATE
+* **Prompt Colors**
+    * Details are TBD, support for the Zeal 8bit OS foreground and background color codes.
+* **Multiple Keyboard Layout**
+    * Details are TBD
 
 ## Goals
 
 * Provide a robust and efficient readline-like interface for the Zeal OS.
-* Minimize memory footprint to accommodate the limited resources of 8-bit systems.
 * Offer a user-friendly experience with intuitive command-line editing features.
 * Implement a reliable command history mechanism.
 * Easy integration into Zeal OS applications.
