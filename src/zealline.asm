@@ -333,19 +333,6 @@ zealline_get_line:
         GET_SCREEN_AREA__ON_ERROR(print_screen_area_error_and_fatalloop)
 _print_prompt:
         PRINT_PROMPT()
-        ; STORE_CURSOR_POS__ON_ERROR(print_cursor_read_error_and_fatalloop)
-        ; SO WHAT TO DO?
-        ; - handle curser left and right
-        ; - handle append in the middle
-        ; - handle backspace and delete in the middle
-        ; - handle STRG+<key>
-        ;   * STRG+a = linestart
-        ;   * STRG+e = lineend
-        ;   * STRG+k = cut fro curser to end
-        ; - FUTURE TASK (history) 
-        ;   * STRG+r search in history.
-        ;   * key up and key down (browse in history)
-
         INITIALIZE_LINEBUFFER_VARIABLES()
 _handle_new_input:
         S_READ3(DEV_STDIN, readbuffer, READBUFFER_SIZE) ; sets DE to readbuffer
