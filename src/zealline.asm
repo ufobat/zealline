@@ -11,19 +11,20 @@
         ; ---------------------------------------------------------------------
         ; PUBLIC INTERFACE
         ; ---------------------------------------------------------------------
-        ; TODO PUBLIC zealline_set_prompt
         ; TODO PUBLIC zealline_print_history
         ; TODO PUBLIC zealline_add_history
+        PUBLIC zealline_init
+        PUBLIC zealline_set_prompt
         PUBLIC zealline_get_line
         ; ---------------------------------------------------------------------
 
         ; can not be larger then 254 (see the C register of zline_get_line)
         DEFC MAX_LINE_LENGTH = 254
+        DEFC MAX_PROMPT_LENGTH = 128
         DEFC READBUFFER_SIZE = 2
 
-        DEFC BG_COLOR       = TEXT_COLOR_BLACK
-        DEFC CURDIR_COLOR   = TEXT_COLOR_LIGHT_GRAY
-        DEFC TEXT_COLOR     = TEXT_COLOR_WHITE
+        ; ESC Prompt Char
+        DEFC ESCAPE_CHAR    = 0x1B
 
         ; kb_flags constants
         DEFC KB_FLAG_NOT_YET_USED_BIT = 7
@@ -90,23 +91,62 @@
                 jp nz, on_error_label
         ENDM
 
-        MACRO SET_TEXT_COLOR color
+        ; SET_TEXT_COLOR
+        ; Parameters:
+        ;   D - Background color
+        ;   E - Foreground color
+        ; Alters: HL, C
+        ; Returns: A
+        MACRO SET_TEXT_COLOR _
                 ld h, DEV_STDOUT
                 ld c, CMD_SET_COLORS
-                ld d, BG_COLOR
-                ld e, color
                 IOCTL()
         ENDM
 
+        ; PRINT_PROMPT
+        ; Alters: HL, BC, DE, A
         MACRO PRINT_PROMPT _
-                SET_TEXT_COLOR(TEXT_COLOR_LIGHT_GRAY)
-                ld a, (default_prompt_length) ; set bc to (default_prompt_length)
-                ld b, 0
-                ld c, a
-                S_WRITE2(DEV_STDOUT, default_prompt); bc == length
+                ld hl, prompt
+        _print_prompt_loop:
+                ; try to check for visible character clusters
+                ld de, hl               ; start address of string
+                ld bc, 0                ; length of string
+        _print_prompt_visible_char_loop:
+                ld a, (hl)
+                inc hl                  ; next char
                 or a
-                jp nz, fatal_error_loop
-                SET_TEXT_COLOR(TEXT_COLOR_WHITE)
+                jr z, _print_loop_end
+                cp ESCAPE_CHAR
+                jr z, _print_prompt_escape_handling
+                inc bc                  ; increase length
+                jr _print_prompt_visible_char_loop
+        _print_prompt_escape_handling:
+                        ld ix, bc               ; save registers
+                        ld iy, de
+                        push hl
+                        S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
+                        pop hl
+                        ld de, iy
+                        ld bc, iy
+                ld a, (hl)
+                inc hl
+                cp 'c'
+                jr z, _print_prompt_set_color
+                ; ... that is the place for more commands
+                jr _print_prompt_loop
+        _print_prompt_set_color:
+                ld d, (hl)              ; read background color
+                inc hl
+                ld e, (hl)              ; read foreground color
+                inc hl
+                        ld ix, bc
+                        ld iy, hl
+                        SET_TEXT_COLOR()
+                        ld hl, iy
+                        ld bc, ix
+                jr _print_prompt_loop
+        _print_loop_end:
+                S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
         ENDM
 
         MACRO ON_IGNORED_SCANCODES_GOTO label
@@ -301,6 +341,25 @@
                 DEC_LINEBUFFER_SIZE()
         ENDM
 
+        ; "zealline_init" sets up stuff
+        ; Alters: <none>
+zealline_init:
+        push bc
+        push de
+        push hl
+        ;;; Setup Prompt
+        ld de, prompt                   ; destination
+        ld hl, default_prompt           ; source
+        ld bc, (default_prompt_length)  ; length
+        ldir
+        ; TODO: Maybe read config file in the future
+
+        pop hl
+        pop de
+        pop bc
+        ret
+
+
         ; "zline_get_line" reads a line/command from STDIN
         ;   This is the main function of this library. It will print your
         ;   prompt and read the line into your buffer.
@@ -484,6 +543,37 @@ _handle_backspace_event:
         HANDLE_BACKSPACE_EVENT()
         jp _handle_new_input
 
+
+        ; "zealline_set_prompt" sets the prompt
+        ;   Stores the NULL-terminated string from HL as the next prompt
+        ; Parameter:
+        ;       HL - Pointer to the NULL-terminated string
+        ; Alters: A
+        ; Returns:
+zealline_set_prompt:
+        push de
+        push bc
+        ld de, prompt
+        ld bc, 0
+_set_prompt_loop:
+        inc c
+        ld a, c
+        cp MAX_PROMPT_LENGTH            ; boundary check
+        jr z, _set_prompt_copy_complete
+        ld a, (hl)
+        ld (de), a
+        or a                            ; NULL-byte check
+        jp z, _set_prompt_copy_complete
+        inc de
+        inc hl
+        jr _set_prompt_loop
+_set_prompt_copy_complete:
+        pop bc
+        ld de, prompt
+        call OutputMemoryAtDE
+        pop de
+        ret
+
         ; ---------------------------------------------------------------------
         ; PRIVATE_FUNCTIONS (all to be call'ed)
         ; ---------------------------------------------------------------------
@@ -582,8 +672,8 @@ fatal_error_loop: ; just terminate
         SECTION DATA
         ; ---------------------------------------------------------------------
 
-default_prompt:             defm "zealline> "
-default_prompt_length:      defs 1, 10           ; TODO we can later allow to modify this prompt
+default_prompt:             defb ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_LIGHT_GRAY, "zealline> ", ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_WHITE, 0x0
+default_prompt_length:      defs 1, 19
 whitespace_char:            defm " "
 newline_char:               defm "\n"
 
@@ -600,6 +690,7 @@ _set_stdin_raw_error_end:
         SECTION BSS
         ; ---------------------------------------------------------------------
 
+prompt:                     defs MAX_PROMPT_LENGTH, 0                
 readbuffer:                 defs 2
 charbuffer:                 defs 1
 linebuffer:                 defs MAX_LINE_LENGTH + 1 ; line + newline_char

@@ -9,21 +9,30 @@
     EXTERN OutputRegisters
     EXTERN OutputMemoryAtDE
     EXTERN zealline_get_line
+    EXTERN zealline_set_prompt
+    EXTERN zealline_init
 
     MACRO ON_STREQ str1, str2, label
-        ld de, str1
-        ld hl, str2
+        ld hl, str1
+        ld de, str2
         call strcmp
-        or a
+        jp z, label
+    ENDM
+
+    MACRO ON_STR_STARTSWITH str1, str2, label
+        ld hl, str1
+        ld de, str2
+        call str_startswith
         jp z, label
     ENDM
 
 main:
+    call zealline_init
     ; read up to 100 bytes of data
     ; set parameterss for zealline_get_line
+loop:
     ld de, command
-    ld c, 100;
-    
+    ld c, 100
     call zealline_get_line
 
     ld ix, bc       ; store command length
@@ -32,11 +41,50 @@ main:
     S_WRITE3(DEV_STDOUT, debug_command_message, debug_command_message_end - debug_command_message)
 
     ON_STREQ(command, exit_command, exit_program)
-    jp main
+    ON_STR_STARTSWITH(command, prompt_command, set_prompt)
+    jp loop
+set_prompt:
+    ; command starts with "sp "<new_prompt>
+    ; call zealline_set_prompt
+    ld hl, command
+    add hl, 3
+    ld de, hl
+    call OutputMemoryAtDE
+    call zealline_set_prompt
+    jp loop
 
 exit_program:
     ld h, 0
     EXIT();
+
+        ; Checks if the NULL-terminated string in DE is the beginning of the
+        ; NULL-terminated string in HL.
+        ; Parameters:
+        ;   HL - First NULL-terminated string
+        ;   DE - Second NULL-terminated string
+        ; Returns:
+        ;   A - 0 AND Z-Flag, if DE is the beginning
+        ;       Negative value if HL > DE
+        ;       Positive value if HL < DE
+        ; Alters:
+        ;   A
+str_startswith:
+        push hl
+        push de
+        inc hl
+        inc de
+_str_startswith_loop:
+        inc hl
+        inc de
+        ld a, (de)
+        or a                        ; Check if DE has reached the end
+        jr z, _str_startswith_end
+        sub (hl)
+        jr z, _str_startswith_loop
+_str_startswith_end:
+        pop de
+        pop hl
+        ret
 
 
         ; Compare two NULL-terminated strings pointed by HL and DE.
@@ -81,6 +129,7 @@ debug_command_message: DEFM " <- this was my command\n"
 debug_command_message_end:
 newline_char: defm "\n"
 exit_command: defb "exit", 0
+prompt_command: defb "sp ", 0
 
     SECTION BCC
 command: defs 100, 0
