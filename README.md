@@ -9,7 +9,7 @@
     * **Ctrl+e:** Move cursor to the end of the line.
     * **Ctrl+c:** Cancel the current line input.
 * **Prompt Colors**
-    * The prompt can be customized with colors using escape sequences. Embed color codes by using the escape byte 0xB1 followed by 'c', a background color code, and a foreground color code.
+    * The prompt can be customized with colors using escape sequences. Embed color codes by using the escape byte 0x1B followed by 'c', a background color code, and a foreground color code.
 
 ## TODO
 
