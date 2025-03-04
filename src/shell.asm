@@ -8,6 +8,8 @@
     EXTERN OutputNewline
     EXTERN OutputRegisters
     EXTERN OutputMemoryAtDE
+    EXTERN strcmp
+    EXTERN str_startswith
     EXTERN zealline_get_line
     EXTERN zealline_set_prompt
     EXTERN zealline_init
@@ -56,72 +58,6 @@ set_prompt:
 exit_program:
     ld h, 0
     EXIT();
-
-        ; Checks if the NULL-terminated string in DE is the beginning of the
-        ; NULL-terminated string in HL.
-        ; Parameters:
-        ;   HL - First NULL-terminated string
-        ;   DE - Second NULL-terminated string
-        ; Returns:
-        ;   A - 0 AND Z-Flag, if DE is the beginning
-        ;       Negative value if HL > DE
-        ;       Positive value if HL < DE
-        ; Alters:
-        ;   A
-str_startswith:
-        push hl
-        push de
-        dec hl
-        dec de
-_str_startswith_loop:
-        inc hl
-        inc de
-        ld a, (de)
-        or a                        ; Check if DE has reached the end
-        jr z, _str_startswith_end
-        sub (hl)
-        jr z, _str_startswith_loop
-_str_startswith_end:
-        pop de
-        pop hl
-        ret
-
-
-        ; Compare two NULL-terminated strings pointed by HL and DE.
-        ; If they are identical, A will be 0
-        ; If DE is greater than HL, A will be positive
-        ; If HL is greater than DE, A will be negative
-        ; Parameters:
-        ;   HL - First NULL-terminated string
-        ;   DE - Second NULL-terminated string
-        ; Returns:
-        ;   A - 0 if both are identical
-        ;       Negative value if HL > DE
-        ;       Positive value if HL < DE
-        ; Alters:
-        ;   A
-        PUBLIC strcmp
-strcmp:
-        push hl
-        push de
-        dec hl
-        dec de
-_strcmp_compare:
-        inc hl
-        inc de
-        ld a, (de)
-        sub (hl)
-        jr nz, _strcmp_end
-        ; Check if both strings have reached the end
-        ; If this is the case, or (hl) will reset in zero flag to be set
-        ; In that case, no need to continue, we can return, with flag Z set
-        or (hl)
-        jr nz, _strcmp_compare
-_strcmp_end:
-        pop de
-        pop hl
-        ret
-
 
     SECTION DATA
 
