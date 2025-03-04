@@ -71,6 +71,8 @@
                 IOCTL()
         ENDM
 
+        ; Sets STDIN to RAW MODE
+        ; Alters: A, HL, C, E
         MACRO SET_STDIN_TO_RAW__ON_ERROR on_error_label
                 ld h, DEV_STDIN
                 ld c, KB_CMD_SET_MODE
@@ -93,9 +95,9 @@
 
         ; SET_TEXT_COLOR
         ; Parameters:
-        ;   D - Background color
-        ;   E - Foreground color
-        ; Alters: HL, C
+        ;       D - Background color
+        ;       E - Foreground color
+        ; Alters: HL, C, A
         ; Returns: A
         MACRO SET_TEXT_COLOR _
                 ld h, DEV_STDOUT
@@ -104,7 +106,7 @@
         ENDM
 
         ; PRINT_PROMPT
-        ; Alters: HL, BC, DE, A
+        ; Alters: HL, BC, DE, A, IX, IY
         MACRO PRINT_PROMPT _
                 ld hl, prompt
         _print_prompt_loop:
@@ -149,6 +151,9 @@
                 S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
         ENDM
 
+        ; Jump to label if A < 0x20 or A >= 0x80
+        ; Paramters:
+        ;       A - Character/Scancode
         MACRO ON_IGNORED_SCANCODES_GOTO label
                 cp 0x20                  ; non printable character: 0x20 <= char
                 jr c, label
@@ -156,12 +161,15 @@
                 jr nc, label
         ENDM
 
+        ; Jump to label if A is anything but KB_RELEASED
+        ; Parameters:
+        ;       A - Character/Scancode
         MACRO ON_KEY_PUSHED_EVENT_GOTO label
                 cp KB_RELEASED
                 jr nz, label
         ENDM
 
-        ; setup linebuffer for new input
+        ; Setup linebuffer for new input
         ; Alters: A
         MACRO INITIALIZE_LINEBUFFER_VARIABLES _
                 or a  ; set a to 0
@@ -169,20 +177,26 @@
                 ld (linebuffer_size), a
         ENDM
 
+        ; Jump to label if key was entered
+        ; Parameters:
+        ;       A - Character/Scancode
         MACRO ON_KEYEVENT_GOTO key, label
                 cp key
                 jp z, label
         ENDM
 
+        ; Toggles a "flag" in "kb_flags"
+        ; flags is one of the kb_flags constants.
+        ; Alters: A
         MACRO TOGGLE_KB_FLAG flag
                 ld a, (kb_flags)
                 xor 1 << flag
                 ld (kb_flags), a
         ENDM
 
-        ; checks if ctrl key is currently pressed
+        ; Checks if ctrl key is currently pressed
         ; if so we goto label in order to handle special key combinations
-        ; Alters: IX
+        ; Alters: IX, A
         MACRO ON_CTRL_MODE_GOTO label
                 ld ixl, a               ; A contains the entered character, preserve it!
                 ld a, (kb_flags)
@@ -234,7 +248,7 @@
                 ld (linebuffer_offset), a
         ENDM
 
-        ; decrease linebuffer_size by one
+        ; Decrease linebuffer_size by one
         ; Returns:
         ;       A - value in linebuffer_size
         MACRO DEC_LINEBUFFER_SIZE _
@@ -243,7 +257,7 @@
                 ld (linebuffer_size), a
         ENDM
 
-        ; increase linebuffer_size by one
+        ; Increase linebuffer_size by one
         ; Returns:
         ;       A - value in linebuffer_size
         MACRO INC_LINEBUFFER_SIZE _
@@ -252,8 +266,13 @@
                 ld (linebuffer_size), a
         ENDM
 
+        ; Inserts the character at the current cursor position
+        ; and adjusts all linebuffer* variables as well as updates the screen.
+        ; Alters: A, BC, DE, HL, IX, IY
+        ; Parameters:
+        ;       A - Scancode
         MACRO HANDLE_VISIBLE_SCANCODES _
-                ;Boundary Check
+                ; Boundary Check
                 ld b, a                             ; save Register A in B, B is now the entered Scancode
                 ld a, (linebuffer_size)
                 inc a                               ; increase the linebuffer size by one!
@@ -307,6 +326,9 @@
                 call move_cursor_to_the_right
         ENDM
 
+        ; Removes the chacter on the left of the cursor, updates all linebuffer* variables
+        ; and updates the screen accordingly.
+        ; Alters: A, BC, DE, HL, IX, IY
         MACRO HANDLE_BACKSPACE_EVENT _
                 SAVE_CURSOR_POS()         ; get cursor position
                 ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
