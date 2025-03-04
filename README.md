@@ -31,6 +31,10 @@
 
 ## Usage
 
+The Z80 Assembler from project [z88dk](https://github.com/z88dk/z88dk) is used to assamble the source files.
+In order to get the "Demo Shell Application" you can compile it with:
+`z88dk-z80asm -b -I$ZOS_INCLUDE -oshell.bin src/shell.asm src/debug.asm src/strutils.asm src/zealline*.asm`
+
 To integrate `zealline` into your Zeal OS application, you will need to:
 
 1.  Include the `zealline` assembly source files in your project.
