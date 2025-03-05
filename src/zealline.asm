@@ -172,7 +172,7 @@
         ; Setup linebuffer for new input
         ; Alters: A
         MACRO INITIALIZE_LINEBUFFER_VARIABLES _
-                or a  ; set a to 0
+                xor a  ; set a to 0
                 ld (linebuffer_offset), a
                 ld (linebuffer_size), a
         ENDM
