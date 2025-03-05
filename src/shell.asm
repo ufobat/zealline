@@ -71,8 +71,8 @@ exit_program:
 str_startswith:
         push hl
         push de
-        inc hl
-        inc de
+        dec hl
+        dec de
 _str_startswith_loop:
         inc hl
         inc de
