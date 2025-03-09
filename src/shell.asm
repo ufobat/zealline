@@ -12,6 +12,7 @@
     EXTERN str_startswith
     EXTERN zealline_get_line
     EXTERN zealline_set_prompt
+    EXTERN zealline_add_history
     EXTERN zealline_init
 
     MACRO ON_STREQ str1, str2, label
@@ -43,6 +44,8 @@ loop:
     S_WRITE3(DEV_STDOUT, debug_command_message, debug_command_message_end - debug_command_message)
 
     ON_STREQ(command, exit_command, exit_program)
+    ld hl, command
+    call zealline_add_history
     ON_STR_STARTSWITH(command, prompt_command, set_prompt)
     jp loop
 set_prompt:

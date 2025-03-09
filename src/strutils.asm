@@ -6,6 +6,7 @@
         PUBLIC str_contains
         PUBLIC str_startswith
         PUBLIC strcmp
+        PUBLIC strlen
 
         ; Checks if the NULL-terminated string in DE is the beginning of the
         ; NULL-terminated string in HL.
@@ -97,4 +98,26 @@ _str_contains_found:
         ld a, 0         ; Substring found
 _str_contains_end:
         pop hl          ; Restore main string pointer
+        ret
+
+        ; Routine returning the length of a NULL-terminated string
+        ; Parameters:
+        ;   HL - NULL-terminated string to get the length from
+        ; Returns:
+        ;   BC - Length of the string
+        ; Alters:
+        ;   A, BC
+strlen:
+        push hl
+        xor a
+        ld b, a
+        ld c, a
+_strlen_loop:
+        cp (hl)
+        jr z, _strlen_end
+        inc hl
+        inc bc
+        jr _strlen_loop
+_strlen_end:
+        pop hl
         ret

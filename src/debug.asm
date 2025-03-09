@@ -3,6 +3,7 @@
 PUBLIC OutputNewline
 PUBLIC OutputRegisters
 PUBLIC OutputMemoryAtDE
+PUBLIC OutputWhitespace
 
 	; Outputs a single new line
     ; Parameters: (none)
@@ -15,6 +16,25 @@ OutputNewline:
 	push hl
 	ld h, 0
 	ld de, Newline
+	ld bc, 1
+	WRITE()
+	pop hl
+	pop de
+	pop bc
+	pop af
+	ret
+
+    ; Outputs a single space
+    ; Parameters: (none)
+    ; Returns: (nothing)
+    ; Alters: (nothing)
+OutputWhitespace:
+	push af
+	push bc
+	push de
+	push hl
+	ld h, 0
+	ld de, WhiteSpace
 	ld bc, 1
 	WRITE()
 	pop hl
@@ -185,6 +205,9 @@ _output_memory_loop:
 	WRITE()           ; overwrites a
 	pop de            ; restore DE for loop
 	pop bc            ; restore Bc for loop
+	ld a, b
+	cp 9
+	call z, OutputWhitespace
 	djnz _output_memory_loop
 	call OutputNewline
 	pop hl
