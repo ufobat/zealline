@@ -12,16 +12,28 @@
         ; PUBLIC INTERFACE
         ; ---------------------------------------------------------------------
         ; TODO PUBLIC zealline_print_history
-        ; TODO PUBLIC zealline_add_history
+        PUBLIC zealline_add_history
         PUBLIC zealline_init
         PUBLIC zealline_set_prompt
         PUBLIC zealline_get_line
         ; ---------------------------------------------------------------------
 
-        ; can not be larger then 254 (see the C register of zline_get_line)
-        DEFC MAX_LINE_LENGTH = 254
+        DEFC MAX_LINE_LENGTH = 128
+        ASSERT(MAX_LINE_LENGTH <= 255 - 1 - 2 - 1 - 4)   ; 8bit - null-byte - addr_ptr - length_field - padding/alignment
+                                                        ; for history we need to not exeed this
         DEFC MAX_PROMPT_LENGTH = 128
         DEFC READBUFFER_SIZE = 2
+        
+        ; History 
+        DEFC HISTORY_SIZE = 2048
+        ASSERT(HISTORY_SIZE > 512)      ; the ring buffer must be at least big enough to store 2 commands
+                                        ; just to be super save that deleting (some) entries will always create
+                                        ; sufficient space for the next new entry
+        DEFVARS 0 {
+                history_entry_next      DS.W 1
+                history_entry_line_len  DS.W 1
+                history_entry_line_ptr  DS.W 1
+        }
 
         ; ESC Prompt Char
         DEFC ESCAPE_CHAR    = 0x1B
@@ -42,6 +54,50 @@
         EXTERN OutputMemoryAtDE
         EXTERN OutputNewline
         EXTERN zealline_to_uppercase
+        EXTERN strlen
+
+
+        ; Tests if HL is a null byte
+        ; Alters: A
+        MACRO ON_HL_IS_NULL_GOTO label
+                ld a, h
+                cp l
+                jp z, label
+        ENDM
+
+        ; Negate HL (two's complement)
+        ; Alters: A
+        MACRO NEG_HL _
+                ld a, h    ; Store H in A temporarily
+                cpl         ; Complement A
+                ld h, a    ; Store the complemented value back in H
+                ld a, l    ; Store L in A temporarily
+                cpl         ; Complement A
+                ld l, a    ; Store the complemented value back in L
+                inc hl     ; Increment HL to complete the two's complement negatio
+        ENDM
+
+        ; Performs ADD HL, A
+        ; Alters: HL
+        MACRO ADD_HL_A _
+                add l
+                ld l, a
+                adc h
+                sub l
+                ld h, a
+        ENDM
+
+        ; Adds the history alignment to Register A
+        ;   Increases the value in A till it is a muliple of 4
+        ; Alters: A
+        MACRO ADD_HISTORY_ALIGNMENT _
+        LOCAL _loop
+        _loop:
+                inc a       ; Increment A
+                and 3       ; Isolate the last two bits
+                jr nz, _loop ; Repeat until the last two bits are 0
+                dec a       ; Decrement A to get the original rounded value
+        ENDM
 
         ; Stores the Position of the cursor to RAM
         ; Alters: DE, HL, C, A
@@ -596,9 +652,146 @@ _set_prompt_copy_complete:
         pop de
         ret
 
+
+        ; "zealline_add_history" stores a command to the history
+        ;   Stores the NULL-terminated string from HL as into the ringbuffer.
+        ;   In the case the ringbuffer is full old values will be removed from
+        ;   in order to create space for the new line.
+        ;
+        ;   There is some kind of alignment for the history_entry struct that is
+        ;   written to the ringbuffer which ensures that the "header" of the string
+        ;   is never going across the end of the ringbuffer. This is achieved by 
+        ;   ensuring that the starting address of each entry is aligned to a 4-byte 
+        ;   boundary. Since the header is 3 bytes long (next pointer + length byte),
+        ;   it will always fit within the remaining space before the boundary.
+        ; Parameter:
+        ;       HL - Pointer to the NULL-terminated string
+        ; Alters: A
+        ; Returns:
+zealline_add_history:
+        call strlen                                     ; A is stringlength
+        cp MAX_LINE_LENGTH
+        jp nc, _add_history_error
+        ld c, a                                         ; Store line length in C
+        ex de, hl                                       ; store line in DE
+        ld hl, (history_current_ptr)
+        ON_HL_IS_NULL_GOTO(_add_history_first_entry)  ; Add the first Element
+        ; regular insert into the ringbuffer
+        inc c                                           ; line length: Add 1 for NULL Byte
+        ld a, c                                         
+        add 2 + 1                                       ; entry length: line length + pointer + length field
+        ADD_HISTORY_ALIGNMENT()
+        ld b, a                                         ; entry length: store in B
+        ; Calculate the address were we are going to write to
+        ld a, (history_current_ptr+history_entry_line_len)
+        add 3                                           ; add space for pointer and length field
+        ld hl, (history_current_ptr)
+        ADD_HL_A()                                      ; HL points to the next address we want to write to
+_add_history_check_for_space:
+        call is_history_space_available                 ; checks if we have enough space in the ringbuffer
+        or a
+        jp z, _add_history_add_entry
+        ; Drop the element - Because of the alignment this is happening without potential wrap-around
+        ld ix, (history_current_ptr)
+        ld iy, (ix+history_entry_next)                  ; iy - address of entry that should be removed
+        ld de, (iy+history_entry_next)                  ; de - address of the entry that becomes the new next entry
+        ld (ix+history_entry_next), de                  ; store it to current entry
+        jp _add_history_check_for_space
+_add_history_add_entry:
+        ; Append history element to HL
+        ld ix, hl                                       ; IX - address of new entry
+        ld hl, (history_current_ptr)                    ; load current pointer - previous entry
+        ; the entry at current_ptr should point to the element we are creating
+        ; but it points to the next element, we need to point to that element!
+        ASSERT history_entry_next==0
+        ; inc hl, history_entry_next - is a nop because history_entry_next is 0
+        ld iy, (hl)                                     ; address of next entry
+        ; write the header of new entry
+        ld a, iyl
+        ld (ix+history_entry_next), a                   ; addr of next
+        ld a, iyh
+        ld (ix+history_entry_next+1), a                 ; addr of next
+        ld (ix+history_entry_line_len), b
+        ; write into previous entry the address of new entry
+        ld iy, hl                                       ; load hl into iy for index adressing
+        ld a, ixl
+        ld (iy+history_entry_next), a
+        ld a, ixh
+        ld (iy+history_entry_next+1), a
+
+        ; copy line (with wrap-around handling and null terminator check)
+        ld hl, ix                               ; HL = destination address (IX)
+        add hl, history_entry_line_ptr          ; HL = destination address + offset for string
+_add_history_add_entry_copy_loop:
+        ld a, (de)                              ; Load a byte from the string
+        cp 0                                    ; Check for null terminator
+        ret z                                   ; Return from the function if null terminator is encountered
+        ld (hl), a                              ; Write the byte to the ring buffer
+        inc de                                  ; Increment DE (source address)
+        inc hl                                  ; Increment HL (destination address)
+        ; Check for wrap-around
+        ld a, h                                 ; Compare high byte of HL with high byte of history_ringbuffer_end
+        cp history_ringbuffer_end >> 8
+        jr nz, _add_history_add_entry_copy_loop
+        ld a, l                                 ; Compare low byte of HL with low byte of history_ringbuffer_end
+        cp history_ringbuffer_end & 255
+        jr nz, _add_history_add_entry_copy_loop
+        ; Wrap around
+        ld hl, history_ringbuffer               ; Wrap around to the beginning of the buffer
+        jr _add_history_add_entry_copy_loop
+_add_history_first_entry:
+        ld ix, history_ringbuffer
+        ld (ix+history_entry_next), l                   ; copy addres to self
+        ld (ix+history_entry_next+1), h
+        ld (ix+history_entry_line_len), b               ; line length with NULL byte
+        ; copy line
+        ld hl, ix
+        add hl, history_entry_line_ptr                  ; hl - dest & de - string to copy
+        ex de, hl                                       ; de - dest & hl - string to copy
+        ld b, 0                                         ; bc - length of string with null-byte
+        ldir
+        ld hl, history_ringbuffer
+        ld (history_current_ptr), hl                    ; point to the first entry
+        ret
+_add_history_error:
+        ld a, ERR_FAILURE
+        ret
+
         ; ---------------------------------------------------------------------
         ; PRIVATE_FUNCTIONS (all to be call'ed)
         ; ---------------------------------------------------------------------
+
+
+        ; is_history_space_available
+        ; Parameters:
+        ;       HL - Address want to write to
+        ;       B - required space
+        ; Returns:
+        ;       A - 0 if we have enough space
+        ;       A - 1 if we dont have enough space
+is_history_space_available:
+        push de
+        push hl
+        ld de, (history_current_ptr+history_entry_next)         ; Address of next Node
+        
+        or a            ; Remove carry flag
+        sbc hl, de      ; Calculate the difference between HL (start address) and DE (oldest element)
+        jp p, _history_space_available_positive  ; If the result is negative, negate HL
+        NEG_HL()
+_history_space_available_positive:
+        ; Compare the available space (HL) with the required space (B)
+        ld a, l            ; Compare the low byte of HL with B
+        cp b
+        jr nc, _history_space_not_available  ; Not enough space
+        ld a, 1            ; Set A to a non-zero value (e.g., 1)
+        pop hl
+        pop de
+        ret
+_history_space_not_available:
+        xor a              ; Set A to 0
+        pop hl
+        pop de
+        ret
 
 
         ; divide_and_modulo
@@ -721,3 +914,6 @@ linebuffer_size:            defs 1
 kb_flags:                   defs 1 ; store shift and caps lock, etc
 cursor_position:            defs 2 ; x: Low Byte // y: High Byte
 screen_area:                defs 4 ; area_t
+history_ringbuffer:         defs HISTORY_SIZE, 0
+history_ringbuffer_end:
+history_current_ptr:        defw 0 ; pointer into the history ringbuffer
