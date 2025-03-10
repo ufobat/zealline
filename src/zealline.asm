@@ -31,7 +31,7 @@
                                         ; sufficient space for the next new entry
         DEFVARS 0 {
                 history_entry_next      DS.W 1
-                history_entry_line_len  DS.W 1
+                history_entry_line_len  DS.B 1
                 history_entry_line_ptr  DS.W 1
         }
 
@@ -88,7 +88,7 @@
         ENDM
 
         ; Adds the history alignment to Register A
-        ;   Increases the value in A till it is a muliple of 4
+        ;   Increases the value in A till it is a muliple of 4 - 1
         ; Alters: A
         MACRO ADD_HISTORY_ALIGNMENT _
         LOCAL _loop
@@ -673,24 +673,32 @@ zealline_add_history:
         push hl
         push de
         push bc
-        call strlen                                     ; A is stringlength
+        call strlen                                     ; BC is stringlength
+        ld a, b
+        or a
+        jp nz, _add_history_error
+        ld a, c                                         ; C is stringlength
         cp MAX_LINE_LENGTH
+        call OutputRegisters
         jp nc, _add_history_error
-        ld c, a                                         ; Store line length in C
         ex de, hl                                       ; store line in DE
         ld hl, (history_current_ptr)
-        ON_HL_IS_NULL_GOTO(_add_history_first_entry)  ; Add the first Element
-        ; regular insert into the ringbuffer
         inc c                                           ; line length: Add 1 for NULL Byte
+        ON_HL_IS_NULL_GOTO(_add_history_first_entry)    ; Add the first Element
+        ; regular insert into the ringbuffer
         ld a, c                                         
-        add 2 + 1                                       ; entry length: line length + pointer + length field
-        ADD_HISTORY_ALIGNMENT()
+        add 3                                           ; entry length: line length + pointer + length field
+        or 3                                            ; set the last 2 bytes of A, therefore it aligns the on 4-byte
+        ; ADD_HISTORY_ALIGNMENT() TODO DELETE ME
         ld b, a                                         ; entry length: store in B
         ; Calculate the address were we are going to write to
-        ld a, (history_current_ptr+history_entry_line_len)
-        add 3                                           ; add space for pointer and length field
-        ld hl, (history_current_ptr)
-        ADD_HL_A()                                      ; HL points to the next address we want to write to
+        ld ix, (history_current_ptr)                    ; Load the address of the entry into HL
+        ld hl, ix
+        ld a, (ix+history_entry_line_len)               ; Load the length of that entry into A
+        add 3                                           ; Add 3 for 3 bytes (1 address + length field)
+        or 3                                            ; Apply the 4-byte Alignment
+        ADD_HL_A()                                      ; => HL points to the next address we want to write to
+        call OutputRegisters
 _add_history_check_for_space:
         call is_history_space_available                 ; checks if we have enough space in the ringbuffer
         or a
@@ -703,6 +711,7 @@ _add_history_check_for_space:
         jp _add_history_check_for_space
 _add_history_add_entry:
         ; Append history element to HL
+        call OutputRegisters
         ld ix, hl                                       ; IX - address of new entry
         ld hl, (history_current_ptr)                    ; load current pointer - previous entry
         ; the entry at current_ptr should point to the element we are creating
@@ -715,7 +724,7 @@ _add_history_add_entry:
         ld (ix+history_entry_next), a                   ; addr of next
         ld a, iyh
         ld (ix+history_entry_next+1), a                 ; addr of next
-        ld (ix+history_entry_line_len), b
+        ld (ix+history_entry_line_len), c
         ; write into previous entry the address of new entry
         ld iy, hl                                       ; load hl into iy for index adressing
         ld a, ixl
@@ -745,15 +754,20 @@ _add_history_add_entry_copy_loop:
         jr _add_history_add_entry_copy_loop
 _add_history_first_entry:
         ld ix, history_ringbuffer
+        ld hl, ix
         ld (ix+history_entry_next), l                   ; copy addres to self
         ld (ix+history_entry_next+1), h
-        ld (ix+history_entry_line_len), b               ; line length with NULL byte
+        ld (ix+history_entry_line_len), c               ; line length with NULL byte
         ; copy line
         ld hl, ix
         add hl, history_entry_line_ptr                  ; hl - dest & de - string to copy
         ex de, hl                                       ; de - dest & hl - string to copy
         ld b, 0                                         ; bc - length of string with null-byte
         ldir
+        push de
+        ld de, history_ringbuffer
+        call OutputMemoryAtDE
+        pop de
         ld hl, history_ringbuffer
         ld (history_current_ptr), hl                    ; point to the first entry
 _add_history_success:
