@@ -666,9 +666,13 @@ _set_prompt_copy_complete:
         ;   it will always fit within the remaining space before the boundary.
         ; Parameter:
         ;       HL - Pointer to the NULL-terminated string
-        ; Alters: A
+        ; Alters: A, IX, IY
         ; Returns:
+        ;   A  - ERR_SUCCESS on success, error value else
 zealline_add_history:
+        push hl
+        push de
+        push bc
         call strlen                                     ; A is stringlength
         cp MAX_LINE_LENGTH
         jp nc, _add_history_error
@@ -725,7 +729,7 @@ _add_history_add_entry:
 _add_history_add_entry_copy_loop:
         ld a, (de)                              ; Load a byte from the string
         cp 0                                    ; Check for null terminator
-        ret z                                   ; Return from the function if null terminator is encountered
+        jr z, _add_history_success              ; Return from the function if null terminator is encountered
         ld (hl), a                              ; Write the byte to the ring buffer
         inc de                                  ; Increment DE (source address)
         inc hl                                  ; Increment HL (destination address)
@@ -752,9 +756,17 @@ _add_history_first_entry:
         ldir
         ld hl, history_ringbuffer
         ld (history_current_ptr), hl                    ; point to the first entry
+_add_history_success:
+        ld a, ERR_SUCCESS
+        pop bc
+        pop de
+        pop hl
         ret
 _add_history_error:
         ld a, ERR_FAILURE
+        pop bc
+        pop de
+        pop hl
         ret
 
         ; ---------------------------------------------------------------------
