@@ -364,7 +364,7 @@
         ENDM
 
         ; "zealline_init" sets up stuff
-        ; Alters: <none>
+        ; Alters: A
 zealline_init:
         push bc
         push de
@@ -372,7 +372,9 @@ zealline_init:
         ;;; Setup Prompt
         ld de, prompt                   ; destination
         ld hl, default_prompt           ; source
-        ld bc, (default_prompt_length)  ; length
+        ld a, (default_prompt_length)   ; length
+        ld b, 0
+        ld c, a
         ldir
         ; TODO: Maybe read config file in the future
 
