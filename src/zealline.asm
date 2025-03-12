@@ -593,8 +593,6 @@ _set_prompt_loop:
         jr _set_prompt_loop
 _set_prompt_copy_complete:
         pop bc
-        ld de, prompt
-        call OutputMemoryAtDE
         pop de
         ret
 
