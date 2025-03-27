@@ -5,6 +5,7 @@
         INCLUDE "zos_sys.asm"
         INCLUDE "zos_video.asm"
         INCLUDE "zos_keyboard.asm"    
+        INCLUDE "zealline_configuration.asm"
 
         SECTION TEXT
 
@@ -17,11 +18,10 @@
         PUBLIC zealline_get_line
         ; ---------------------------------------------------------------------
 
-        PUBLIC MAX_LINE_LENGTH
-        DEFC MAX_LINE_LENGTH = 128
+
         ASSERT(MAX_LINE_LENGTH <= 255 - 1 - 2 - 1 - 4)  ; 8bit - null-byte - addr_ptr - length_field - padding/alignment
                                                         ; for history we need to not exeed this
-        DEFC MAX_PROMPT_LENGTH = 128
+
         DEFC READBUFFER_SIZE = 2
 
         ; ESC Prompt Char
@@ -43,7 +43,9 @@
         EXTERN OutputMemoryAtDE
         EXTERN OutputNewline
         EXTERN zealline_to_uppercase
-        EXTERN zealline_add_history
+        EXTERN zealline_history_search_forward
+        EXTERN zealline_history_search_backward
+        EXTERN zealline_reset_history_search
 
 
         ; Stores the Position of the cursor to RAM
@@ -67,11 +69,11 @@
         ENDM
 
         ; Moves the cursor on the screen to the position in DE
-        ; Alters: HL, BC
+        ; Alters: HL, C, A
         MACRO MOVE_CURSOR_POS _
                 ld h, DEV_STDOUT
                 ld c, CMD_SET_CURSOR_XY
-                IOCTL()
+                IOCTL()                 ; Alters L, A
         ENDM
 
         ; Sets STDIN to RAW MODE
@@ -269,6 +271,36 @@
                 ld (linebuffer_size), a
         ENDM
 
+        ; Wipe Linebuffer but does not adjust linebuffer_size or linebuffer_offset
+        ; Alters: A, BC, DE, HL, IXH
+        MACRO WIPE_LINEBUFFER _
+                ld a, (linebuffer_size)
+                ld ixh, a                               ; store length
+                call move_cursor_to_the_beginning
+                ld b, 0
+                ld c, ixh                               ; BC - length of string
+                S_WRITE2(DEV_STDOUT, whitespace_chars)  ; wipe the current prompt
+                ld a, ixh                               ; prepare linebuffer_offset
+                ld (linebuffer_offset), a               ; ...for
+                call move_cursor_to_the_beginning       ; ...this function
+        ENDM
+
+        ; Copy the String in HL with the length BC to linebuffer.
+        ; Adjusts linebuffer_size and linebuffer_offset
+        ; Parameters:
+        ;       HL - ptr to string
+        ;       BC - length of string
+        ; Alters: A, BC, DE, HL, IXH
+        MACRO COPY_HL_BC_TO_LINEBUFFER _
+                ld a, c
+                ld (linebuffer_size), a
+                ld (linebuffer_offset), a
+                ld de, linebuffer                       ; DE - set destination
+                ld ix, bc
+                ldir                                    ; Copy everything except nullbyte / alters BC
+                S_WRITE3(DEV_STDOUT, linebuffer, ix)
+        ENDM
+
         ; Inserts the character at the current cursor position
         ; and adjusts all linebuffer* variables as well as updates the screen.
         ; Alters: A, BC, DE, HL, IX, IY
@@ -353,14 +385,14 @@
                 ldir                            ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
                 call move_cursor_to_the_left
                 S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
-                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the char that was deleted
+                S_WRITE3(DEV_STDOUT, whitespace_chars, 1); overwrite the char that was deleted
                 call move_cursor_to_the_left
                 DEC_LINEBUFFER_OFFSET()
                 DEC_LINEBUFFER_SIZE()
                 jp _handle_new_input
         __backspace_at_the_end:  ; CASE 3: curser was at the end of the line
                 call move_cursor_to_the_left
-                S_WRITE3(DEV_STDOUT, whitespace_char, 1) ; overwrite the deleted char with " "
+                S_WRITE3(DEV_STDOUT, whitespace_chars, 1); overwrite the deleted char with " "
                 call move_cursor_to_the_left             ; curser to the new position
                 DEC_LINEBUFFER_OFFSET()
                 DEC_LINEBUFFER_SIZE()
@@ -446,6 +478,8 @@ _handle_key_pushed_events:
         ON_KEYEVENT_GOTO( KB_KEY_BACKSPACE, _handle_backspace_event)
         ON_KEYEVENT_GOTO( KB_LEFT_ARROW,    _handle_left_arrow)
         ON_KEYEVENT_GOTO( KB_RIGHT_ARROW,   _handle_right_arrow)
+        ON_KEYEVENT_GOTO( KB_UP_ARROW,      _handle_up_arrow)
+        ON_KEYEVENT_GOTO( KB_DOWN_ARROW,    _handle_down_arrow)
         ON_IGNORED_SCANCODES_GOTO(_handle_new_input) 
         ; everything that reaches this code is a normal scancode
         ON_CTRL_MODE_GOTO( _handle_ctrl_mode)
@@ -458,22 +492,7 @@ _handle_ctrl_mode:
         ON_KEYEVENT_GOTO( 'c',              _handle_ctrl_c )
         jp _handle_new_input
 _handle_ctrl_a:
-        ; Move cursor to the far left
-        SAVE_CURSOR_POS()
-        ld a, (screen_area + area_width_t)
-        ld b, a                         ; divisor is the screen_area width
-        ld a, (linebuffer_offset)       ; dividend
-        call divide_and_modulo          ; B = A / B and C =A % B
-        LOAD_CURSOR_SWAPPED()
-        ld a, d                         ; apply modulo on x-axis
-        sub b
-        ld d, a
-        ld a, e                         ; apply quotient on y-axis
-        sub c
-        ld e, a
-        MOVE_CURSOR_POS()
-        ld a, 0
-        ld (linebuffer_offset), a
+        call move_cursor_to_the_beginning
         jp _handle_new_input
 _handle_ctrl_e:
         ; Move cursor to the far right
@@ -499,7 +518,18 @@ _handle_ctrl_e:
 _handle_ctrl_c:
         ; Abort this command
         S_WRITE3(DEV_STDOUT, newline_char, 1)   ; print newline
+        call zealline_reset_history_search
         jp _print_prompt                        ; print prompt
+_handle_up_arrow:
+        WIPE_LINEBUFFER()
+        call zealline_history_search_backward   ; BC - length, HL - ptr
+        COPY_HL_BC_TO_LINEBUFFER()
+        jp _handle_new_input
+_handle_down_arrow:
+        WIPE_LINEBUFFER()
+        call zealline_history_search_forward    ; BC - length, HL - ptr
+        COPY_HL_BC_TO_LINEBUFFER()
+        jp _handle_new_input
 _handle_left_arrow:
         SAVE_CURSOR_POS()
         ; boundary check with linebuffer_offset and 0
@@ -631,23 +661,22 @@ __modulo:
         ; Returns:
         ;   A  - ERR_SUCCESS on success, error value else
         ; Alters:
-        ;   A, BC, DE
+        ;   A, C, DE, HL
 move_cursor_to_the_left:
-        ld b, h                  ; B is unused: store old H
-        ld de, (cursor_position) ; load
-        ld a, e                  ; and swap
+        ld de, (cursor_position)        ; load
+        ld a, e                         ; and swap
         ld e, d
         ld d, a
         dec d
-        jp p, _set_cursor       ; as soon as we have carry we need to switch lines
-                dec e            ; move cursor in the line above
+        jp p, _set_cursor               ; as soon as we have carry we need to switch lines
+                dec e                   ; move cursor in the line above
                 ld a, (screen_area + area_width_t)
                 dec a
-                ld d, a          ; set cursor in the end of the line
+                ld d, a                 ; set cursor in the end of the line
 _set_cursor:
-        MOVE_CURSOR_POS()
-        ld h, b                  ; restore H value
+        MOVE_CURSOR_POS()               ; Alters: HL, C, A
         ret
+
 
         ; move_cursor_to_the_right
         ;   It assumes that your current coursor position is stored in 
@@ -670,6 +699,27 @@ move_cursor_to_the_right:
                 inc e            ; move cursor in the line below
                 ld d, 0          ; set cursor in the beginning of the line
         jr _set_cursor
+
+        ; Move cursor to the far left
+        ; Requires linebuffer_offset to be "correct"
+        ; Alters: A, BC, DE, HL
+move_cursor_to_the_beginning:
+        SAVE_CURSOR_POS()
+        ld a, (screen_area + area_width_t)
+        ld b, a                         ; divisor is the screen_area width
+        ld a, (linebuffer_offset)       ; dividend
+        call divide_and_modulo          ; B = A / B and C =A % B
+        LOAD_CURSOR_SWAPPED()
+        ld a, d                         ; apply modulo on x-axis
+        sub b
+        ld d, a
+        ld a, e                         ; apply quotient on y-axis
+        sub c
+        ld e, a
+        MOVE_CURSOR_POS()
+        ld a, 0
+        ld (linebuffer_offset), a
+        ret
 
 
         ; ---------------------------------------------------------------------
@@ -700,7 +750,7 @@ fatal_error_loop: ; just terminate
 
 default_prompt:             defb ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_LIGHT_GRAY, "zealline> ", ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_WHITE, 0x0
 default_prompt_length:      defs 1, 19
-whitespace_char:            defm " "
+whitespace_chars:           defs MAX_LINE_LENGTH, 0x20
 newline_char:               defm "\n"
 
 _screen_area_error: DEFM "error: cant read the screen area\n"

@@ -1,0 +1,5 @@
+; configurable for your usecase
+
+DEFC MAX_LINE_LENGTH = 128
+DEFC MAX_PROMPT_LENGTH = 128
+DEFC HISTORY_SIZE = 2048

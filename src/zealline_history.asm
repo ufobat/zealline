@@ -3,21 +3,27 @@
 ; SPDX-License-Identifier: Apache-2.0
 
         INCLUDE "zos_sys.asm"
+        INCLUDE "zealline_configuration.asm"
 
         SECTION TEXT
 
         ; ---------------------------------------------------------------------
         ; PUBLIC INTERFACE
         ; ---------------------------------------------------------------------
-        ; TODO PUBLIC zealline_print_history
+        PUBLIC zealline_reset_history_search
+        PUBLIC zealline_history_search_backward
+        PUBLIC zealline_history_search_forward
+        ;PUBLIC zealline_history_search_backward_substr
+        ;PUBLIC zealline_history_search_backward_substr
         PUBLIC zealline_add_history
 
         EXTERN strlen
-        EXTERN MAX_LINE_LENGTH
+        EXTERN OutputRegisters
+        EXTERN OutputMemoryAtDE
+        EXTERN OutputNewline
 
 
         ; History
-        DEFC HISTORY_SIZE = 2048
         ASSERT(HISTORY_SIZE >= 512)     ; the ring buffer must be at least big enough to store 2 commands
                                         ; just to be super save that deleting (some) entries will always create
                                         ; sufficient space for the next new entry
@@ -69,6 +75,65 @@
         ENDM
 
 
+        ; Tests if DE is not equal to BC
+        ; Alters: A
+        MACRO DE_NE_BC label
+        ld a, d
+        cp b
+        jr nz, label ; If high bytes are different, jump
+
+        ld a, e
+        cp c
+        jr nz, label ; If low bytes are different, jump
+
+        ; If we reach here, DE == BC (so we don't jump)
+        ENDM
+
+
+        ; Setup HL and BC for all zealline_history_search*
+        ; Returns: HL and BC, the result values
+        MACRO SETUP_SEARCH_RESULT _
+                ld hl, history_search_result
+                ld ix, (history_iterator_ptr)
+                ld b, 0
+                ld c, (ix+history_entry_line_len)
+                dec c                                   ; dec c because remove nullbyte from length
+        ENDM
+
+
+        ; Resets the history serach iterator
+        ; Alters: HL
+zealline_reset_history_search:
+        ld hl, 0
+        ld (history_iterator_ptr), hl
+        ret
+
+        ; Searches backward through the history, retrieving the previous line.
+        ; Returns: HL - the pointer to the line
+        ;          BC - length of the line
+        ; Alters: IX, A, HL
+zealline_history_search_backward:
+        push de
+        call history_iterator_back
+        call copy_iterator_to_search_result
+        SETUP_SEARCH_RESULT()
+        pop de
+        ret
+
+
+        ; Searches forward through the history, revriving the next line
+        ; Returns: HL - the pointer to the line
+        ;          BC - length of the line
+        ; Alters: IX, A, HL
+zealline_history_search_forward:
+        push de
+        call history_iterator_forward
+        call copy_iterator_to_search_result
+        SETUP_SEARCH_RESULT()
+        pop de
+        ret
+
+
         ; "zealline_add_history" stores a command to the history
         ;   Stores the NULL-terminated string from HL as into the ringbuffer.
         ;   In the case the ringbuffer is full old values will be removed from
@@ -89,6 +154,7 @@ zealline_add_history:
         push hl
         push de
         push bc
+        ld de, history_ringbuffer
         call strlen                                     ; BC is stringlength
         ld a, b
         or a
@@ -181,6 +247,7 @@ _add_history_first_entry:
         ld hl, history_ringbuffer
         ld (history_current_ptr), hl                    ; point to the first entry
 _add_history_success:
+        call zealline_reset_history_search
         ld a, ERR_SUCCESS
         pop bc
         pop de
@@ -197,6 +264,64 @@ _add_history_error:
         ; ---------------------------------------------------------------------
         ; PRIVATE_FUNCTIONS (all to be call'ed)
         ; ---------------------------------------------------------------------
+
+ ___just_for_tooltip:
+
+        ; Turns the iterator one entry backwards
+        ; Returns: BC - value of (history_iterator_pr)
+        ; Alters: A, BC, DE, HL
+history_iterator_back:
+        ld hl, (history_iterator_ptr)
+        ON_HL_IS_NULL_GOTO(_history_iterator_back_use_current_ptr)
+        ld a, h
+        or l
+        call z, zealline_reset_history_search           ; also loads HL
+        ld de, hl                                       ; store HL in DE, our destinatin if the prev element was found
+        ASSERT history_entry_next==0                    ; so we can short-cut and use (hl) to load the next node
+        ld bc, hl                                       ; just for the loop
+_history_iterator_back_loop:
+        ld hl, bc
+        ld bc, (hl)                                     ; load next node into BR
+        DE_NE_BC(_history_iterator_back_loop)           ; if next node is equal to DE then we have found it
+        ld (history_iterator_ptr), hl
+        ret
+_history_iterator_back_use_current_ptr:
+        ld hl, (history_current_ptr)
+        ld (history_iterator_ptr), hl
+        ret
+
+        ; Turns the iterator one entry forward
+        ; Alters: A, BC, HL
+history_iterator_forward:
+        ld hl, (history_iterator_ptr)
+        ld a, h
+        or l
+        jp nz, _history_iterator_forward_get_next
+        ld hl, (history_current_ptr)
+_history_iterator_forward_get_next:
+        ld bc, (hl)
+        ld (history_iterator_ptr), bc
+        ret
+
+        ; copy the current iterator entry to history_search_result
+        ; Alters: A, BC, DE, HL, IX
+copy_iterator_to_search_result:
+        ld ix, (history_iterator_ptr)
+        ld b, 0
+        ld c, (ix+history_entry_line_len)
+        ld hl, ix
+        add hl, history_entry_line_ptr
+        ld de, history_search_result
+_copy_iterator_to_search_result_copy_loop:
+        ldi
+        ld a, c
+        or a
+        ret z
+        ON_HL_BEYOND_HISTORY_RINBUFFER(_copy_iterator_to_search_result_fix_hl, _copy_iterator_to_search_result_copy_loop)
+_copy_iterator_to_search_result_fix_hl:
+        ld hl, history_ringbuffer
+        jr _copy_iterator_to_search_result_copy_loop
+
 
         ; is_history_space_available
         ; Parameters:
@@ -243,3 +368,5 @@ _history_space_not_available:
 history_ringbuffer:         defs HISTORY_SIZE, 0
 history_ringbuffer_end:
 history_current_ptr:        defw 0 ; pointer into the history ringbuffer
+history_iterator_ptr:       defw 0 ; pointer for the search iterator
+history_search_result:      defs MAX_LINE_LENGTH, 0
