@@ -10,7 +10,12 @@
 
     ; int zealline_init();
 
+
     .globl _zealline_init
 _zealline_init:
-    call zealline_init
+    call zealline_init ; TODO how to call zealline_init from the z88dk files in src/?
+    ret
+
+; this is just here that it compiles, it does not make sense
+zealline_init: 
     ret
