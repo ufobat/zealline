@@ -5,7 +5,7 @@
 
 SHELL := /bin/bash
 
-ASM_LIB_FILE = ../../lib/zealline_asm.lib
+ASM_LIB_FILE = ../../lib/zealline.lib
 
 ifndef ZOS_PATH
 $(error "Please define ZOS_PATH environment variable. It must point to Zeal 8-bit OS source code path.")
