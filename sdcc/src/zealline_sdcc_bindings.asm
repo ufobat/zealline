@@ -11,11 +11,12 @@
     ; int zealline_init();
 
 
-    .globl _zealline_init
+    .globl zealline_init  ; references the EXTERN zealline_init in src/zealline.asm
+    .globl _zealline_init ; makes this _zealline_init PUBLIC
 _zealline_init:
     call zealline_init ; TODO how to call zealline_init from the z88dk files in src/?
     ret
 
 ; this is just here that it compiles, it does not make sense
-zealline_init: 
-    ret
+;zealline_init: 
+;    ret
