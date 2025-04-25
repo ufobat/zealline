@@ -610,21 +610,40 @@ _handle_backspace_event:
 zealline_set_prompt:
         push de
         push bc
+        push ix
         ld de, prompt
-        ld bc, 0
-_set_prompt_loop:
+        ld c, 0                                         ; prompt_length_check_cnt
+        ld b, 3                                         ; escape_length_check_cnt
+        ; all control Sequenzes are ESCAPE_CHAR and then _3_ more chars
+_zealline_set_prompt_loop:
         inc c
         ld a, c
-        cp MAX_PROMPT_LENGTH            ; boundary check
-        jr z, _set_prompt_copy_complete
+        cp MAX_PROMPT_LENGTH                            ; boundary check
+        jr z, _zealline_set_prompt_copy_complete        ; exit
         ld a, (hl)
         ld (de), a
-        or a                            ; NULL-byte check
-        jp z, _set_prompt_copy_complete
+        ld ixh, a                                       ; backup A into IXH
+_zealline_set_prompt_check_excape_char:
+        cp ESCAPE_CHAR                                  ; Check if A is 0x18
+        jr nz, _zealline_set_prompt_check_escape_seq    ; If A is NOT 0x18 continue with skip_cou
+        ld b, 3                                         ; escape_length_check_cnt = 3
+        jr _zealline_set_prompt_skip_null_byte_check    ; just continue
+_zealline_set_prompt_check_escape_seq:
+        ld a, b                                         ; Load escape_length_check_cnt
+        or a
+        ld a, ixh                                       ; restore A
+        jp z, _zealline_set_prompt_null_byte_check      ; Jump if Not in Escape Sequence
+        dec b
+        jr _zealline_set_prompt_skip_null_byte_check    ; Excape Seq Mode - skip the check
+_zealline_set_prompt_null_byte_check:
+        or a                                            ; NULL-byte check
+        jp z, _zealline_set_prompt_copy_complete
+_zealline_set_prompt_skip_null_byte_check:
         inc de
         inc hl
-        jr _set_prompt_loop
-_set_prompt_copy_complete:
+        jr _zealline_set_prompt_loop
+_zealline_set_prompt_copy_complete:
+        pop ix
         pop bc
         pop de
         ret
