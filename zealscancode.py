@@ -20,7 +20,7 @@ def defline(line_number):
 
 
 dispatch = {
-    ':': ';',
+    ';': ':',
     '`': '"',
     '=': '+',
     ' ': ' ', 
