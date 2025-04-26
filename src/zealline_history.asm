@@ -114,9 +114,13 @@ zealline_reset_history_search:
         ; Alters: IX, A, HL
 zealline_history_search_backward:
         push de
+        ld bc, 0
+        ld hl, (history_current_ptr)
+        ON_HL_IS_NULL_GOTO(_history_search_backward_return)
         call history_iterator_back
         call copy_iterator_to_search_result
         SETUP_SEARCH_RESULT()
+_history_search_backward_return:
         pop de
         ret
 
@@ -127,9 +131,13 @@ zealline_history_search_backward:
         ; Alters: IX, A, HL
 zealline_history_search_forward:
         push de
+        ld bc, 0
+        ld hl, (history_current_ptr)
+        ON_HL_IS_NULL_GOTO(_history_search_forward_return)
         call history_iterator_forward
         call copy_iterator_to_search_result
         SETUP_SEARCH_RESULT()
+_history_search_forward_return:
         pop de
         ret
 

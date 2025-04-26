@@ -292,13 +292,17 @@
         ;       BC - length of string
         ; Alters: A, BC, DE, HL, IXH
         MACRO COPY_HL_BC_TO_LINEBUFFER _
+        LOCAL _copy_hl_to_linebuffer
                 ld a, c
                 ld (linebuffer_size), a
                 ld (linebuffer_offset), a
+                or a
+                jr z, _copy_hl_to_linebuffer            ; string length == 0
                 ld de, linebuffer                       ; DE - set destination
                 ld ix, bc
                 ldir                                    ; Copy everything except nullbyte / alters BC
                 S_WRITE3(DEV_STDOUT, linebuffer, ix)
+        _copy_hl_to_linebuffer:
         ENDM
 
         ; Inserts the character at the current cursor position
