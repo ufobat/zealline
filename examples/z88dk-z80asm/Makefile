@@ -4,15 +4,15 @@
 #
 
 SHELL := /bin/bash
-
-ASM_LIB_FILE = ../../lib/zealline.lib
+ASM_LIB_DIR = ../../lib
+ASM_LIB_FILE = $(ASM_LIB_DIR)/zealline.lib
 
 ifndef ZOS_PATH
 $(error "Please define ZOS_PATH environment variable. It must point to Zeal 8-bit OS source code path.")
 endif
 
 ASM = z88dk-z80asm
-ASMFLAGS := -mz80 -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm 
+ASMFLAGS := -mz80 -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm  -I$(ASM_LIB_DIR)
 
 .PHONY: all clean cleanal
 

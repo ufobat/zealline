@@ -15,6 +15,7 @@ LIB_DIR          := lib
 
 # libraries to build
 ASM_LIB_FILE     := zealline.lib
+ASM_INCLUDE_FILE := zealline.asm
 
 SOURCES          = $(shell find $(SRC_DIR) -name "*.asm")
 OBJECTS          = $(patsubst $(SRC_DIR)/%.asm,$(BUILD_DIR)/%.o,$(SOURCES))
@@ -29,7 +30,7 @@ ASMFLAGS  := -mz80 -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm
 
 .PHONY: all clean cleanall
 
-all: $(BUILD_DIR) $(SDCC_BUILD_DIR) $(LIB_DIR)/$(ASM_LIB_FILE) $(LIB_DIR)/$(SDCC_LIB_FILE)
+all: $(BUILD_DIR) $(SDCC_BUILD_DIR) $(LIB_DIR)/$(ASM_LIB_FILE) $(LIB_DIR)/$(ASM_INCLUDE_FILE) $(LIB_DIR)/$(SDCC_LIB_FILE)
 	@bash -c 'echo -e "\x1b[32;1mSuccess, libraries generated\x1b[0m"'
 
 # create ASM object files
@@ -49,6 +50,9 @@ $(LIB_DIR):
 $(LIB_DIR)/$(ASM_LIB_FILE): $(OBJECTS) | $(LIB_DIR)
 	@echo "Archiving library: $@"
 	$(ASM) $(ASMFLAGS) -x$@ $(OBJECTS)
+
+$(LIB_DIR)/$(ASM_INCLUDE_FILE): $(LIB_DIR)
+	python3 zealinclude.py
 
 clean:
 	@echo "Cleaning build directory..."

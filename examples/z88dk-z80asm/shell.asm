@@ -3,14 +3,12 @@
 ; SPDX-License-Identifier: Apache-2.0
 
     INCLUDE "zos_sys.asm"
+    INCLUDE "zealline.asm"
     org 0x4000
 
+    ; zealline also has PUBLIC str* functions
     EXTERN strcmp
     EXTERN str_startswith
-    EXTERN zealline_get_line
-    EXTERN zealline_set_prompt
-    EXTERN zealline_add_history
-    EXTERN zealline_init
 
     MACRO ON_STREQ str1, str2, label
         ld hl, str1
