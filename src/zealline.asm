@@ -146,11 +146,11 @@
                 inc hl
                 ld e, (hl)              ; read foreground color
                 inc hl
-                        ld ix, bc
-                        ld iy, hl
+                        push bc
+                        push hl
                         SET_TEXT_COLOR()
-                        ld hl, iy
-                        ld bc, ix
+                        pop hl
+                        pop bc
                 jr _print_prompt_loop
         _print_loop_end:
                 S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
