@@ -286,7 +286,7 @@
         ; Parameters:
         ;       HL - ptr to string
         ;       BC - length of string
-        ; Alters: A, BC, DE, HL, IXH
+        ; Alters: A, BC, DE, HL
         MACRO COPY_HL_BC_TO_LINEBUFFER _
         LOCAL _copy_hl_to_linebuffer
                 ld a, c
@@ -295,9 +295,10 @@
                 or a
                 jr z, _copy_hl_to_linebuffer            ; string length == 0
                 ld de, linebuffer                       ; DE - set destination
-                ld ix, bc
+                push bc
                 ldir                                    ; Copy everything except nullbyte / alters BC
-                S_WRITE3(DEV_STDOUT, linebuffer, ix)
+                pop bc
+                S_WRITE2(DEV_STDOUT, linebuffer)
         _copy_hl_to_linebuffer:
         ENDM
 
