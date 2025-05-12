@@ -128,13 +128,9 @@
                 inc bc                  ; increase length
                 jr _print_prompt_visible_char_loop
         _print_prompt_escape_handling:
-                        ld ix, bc               ; save registers
-                        ld iy, de
-                        push hl
-                        S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
-                        pop hl
-                        ld de, iy
-                        ld bc, iy
+                push hl
+                S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
+                pop hl
                 ld a, (hl)
                 inc hl
                 cp 'c'
@@ -384,11 +380,13 @@
                 GET_LINEBUFFER_AT_OFFSET()      ; alters registers A and DE
                 ld de, hl
                 dec de                          ; de = linebuffer_at_offset - 1
-                ld ix, bc                       ; store bc in IX for later!
-                ld iy, de                       ; store DE in IY for later!
+                push bc                         ; store bc in IX for later!
+                push de                         ; store DE in IY for later!
                 ldir                            ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
                 call move_cursor_to_the_left
-                S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
+                pop de
+                pop bc
+                S_WRITE1(DEV_STDOUT)                     ; DE, BC output the moved characters
                 S_WRITE3(DEV_STDOUT, whitespace_chars, 1); overwrite the char that was deleted
                 call move_cursor_to_the_left
                 DEC_LINEBUFFER_OFFSET()
