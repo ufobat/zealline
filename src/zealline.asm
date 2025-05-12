@@ -381,8 +381,8 @@
                 GET_LINEBUFFER_AT_OFFSET()      ; alters registers A and DE
                 ld de, hl
                 dec de                          ; de = linebuffer_at_offset - 1
-                push bc                         ; store bc in IX for later!
-                push de                         ; store DE in IY for later!
+                push bc
+                push de
                 ldir                            ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
                 call move_cursor_to_the_left
                 pop de
