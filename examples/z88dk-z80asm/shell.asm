@@ -4,11 +4,9 @@
 
     INCLUDE "zos_sys.asm"
     INCLUDE "zealline.asm"
-    org 0x4000
+    INCLUDE "strutils_h.asm"
 
-    ; zealline also has PUBLIC str* functions
-    EXTERN strcmp
-    EXTERN str_startswith
+    org 0x4000
 
     MACRO ON_STREQ str1, str2, label
         ld hl, str1

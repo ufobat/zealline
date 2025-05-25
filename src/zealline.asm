@@ -6,6 +6,7 @@
         INCLUDE "zos_video.asm"
         INCLUDE "zos_keyboard.asm"    
         INCLUDE "zealline_configuration.asm"
+        INCLUDE "strutils_h.asm"
 
         SECTION TEXT
 

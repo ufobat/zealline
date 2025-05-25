@@ -26,7 +26,7 @@ endif
 
 # Specify Z80 as the target, compile without linking, and place all the code in TEXT section
 # (_CODE must be replace).
-ASMFLAGS  := -mz80 -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm 
+ASMFLAGS  := -mz80 -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm -I$(ZOS_PATH)/kernel_headers/z88dk-z80asm/include/
 
 .PHONY: all clean cleanall
 
