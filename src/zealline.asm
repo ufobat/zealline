@@ -4,7 +4,8 @@
 
         INCLUDE "zos_sys.asm"
         INCLUDE "zos_video.asm"
-        INCLUDE "zos_keyboard.asm"    
+        INCLUDE "zos_keyboard.asm"
+        INCLUDE "strutils_h.asm"
         INCLUDE "zealline_configuration.asm"
 
         SECTION TEXT
@@ -48,15 +49,6 @@
         EXTERN zealline_reset_history_search
 
 
-        ; Stores the Position of the cursor to RAM
-        ; Alters: DE, HL, C, A
-        MACRO SAVE_CURSOR_POS _
-                ld de, cursor_position
-                ld h, DEV_STDOUT
-                ld c, CMD_GET_CURSOR_XY
-                IOCTL()                  ; And Register L
-        ENDM
-
         ; Loads the Position of the cursor to DE
         ; Alters A
         ; Returns:
@@ -70,7 +62,7 @@
 
         ; Moves the cursor on the screen to the position in DE
         ; Alters: HL, C, A
-        MACRO MOVE_CURSOR_POS _
+        MACRO SET_CURSOR_POS _
                 ld h, DEV_STDOUT
                 ld c, CMD_SET_CURSOR_XY
                 IOCTL()                 ; Alters L, A
@@ -116,41 +108,37 @@
                 ld hl, prompt
         _print_prompt_loop:
                 ; try to check for visible character clusters
-                ld de, hl               ; start address of string
-                ld bc, 0                ; length of string
+                ld d, h
+                ld e, l                 ; start address of string
+                ld bc, 0xFFFF           ; length of string (it will be 0 when entering the loop)
         _print_prompt_visible_char_loop:
+                inc bc
                 ld a, (hl)
                 inc hl                  ; next char
                 or a
                 jr z, _print_loop_end
                 cp ESCAPE_CHAR
-                jr z, _print_prompt_escape_handling
-                inc bc                  ; increase length
-                jr _print_prompt_visible_char_loop
-        _print_prompt_escape_handling:
-                        ld ix, bc               ; save registers
-                        ld iy, de
-                        push hl
-                        S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
-                        pop hl
-                        ld de, iy
-                        ld bc, iy
+                jr nz, _print_prompt_visible_char_loop
+                ; Handle escape character
+                    push hl
+                    ; BC and DE are preserved by the syscall
+                    S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length BC
+                    pop hl
                 ld a, (hl)
                 inc hl
                 cp 'c'
                 jr z, _print_prompt_set_color
-                ; ... that is the place for more commands
+                ; ... that is the place for more escape sequences/commands
                 jr _print_prompt_loop
         _print_prompt_set_color:
                 ld d, (hl)              ; read background color
                 inc hl
                 ld e, (hl)              ; read foreground color
                 inc hl
-                        ld ix, bc
-                        ld iy, hl
-                        SET_TEXT_COLOR()
-                        ld hl, iy
-                        ld bc, ix
+                ; No need to save DE and BC since we will go back to the beginning of the loop right after
+                push hl
+                SET_TEXT_COLOR()
+                pop hl
                 jr _print_prompt_loop
         _print_loop_end:
                 S_WRITE1(DEV_STDOUT)    ; print visible char cluster, DE with length ob BC
@@ -190,6 +178,12 @@
                 jp z, label
         ENDM
 
+
+        MACRO ON_KEYEVENT_GOTO_NEAR key, label
+                cp key
+                jr z, label
+        ENDM
+
         ; Toggles a "flag" in "kb_flags"
         ; flags is one of the kb_flags constants.
         ; Alters: A
@@ -201,25 +195,23 @@
 
         ; Checks if ctrl key is currently pressed
         ; if so we goto label in order to handle special key combinations
-        ; Alters: IX, A
+        ; Alters: A, B
         MACRO ON_CTRL_MODE_GOTO label
-                ld ixl, a               ; A contains the entered character, preserve it!
+                ld b, a               ; A contains the entered character, preserve it!
                 ld a, (kb_flags)
                 and KB_FLAG_ANY_CTRL
-                ld a, ixl
-                jp nz, label
+                ld a, b
+                jr nz, label
         ENDM
 
         ; GET_LINEBUFFER_AT_OFFSET
         ; Alters: A, DE
         ; Returns:
+        ;       A - Linebuffer offset
         ;       HL - position in linebuffer
         MACRO GET_LINEBUFFER_AT_OFFSET _
-                ld hl, linebuffer
                 ld a, (linebuffer_offset)
-                ld d, 0
-                ld e, a
-                add hl, de
+                call get_linebuffer_at_index
         ENDM
 
         ; GET_LINEBUFFER_AT_LASTCHAR
@@ -227,12 +219,9 @@
         ; Returns:
         ;       HL - position in linebuffer
         MACRO GET_LINEBUFFER_AT_LASTCHAR _
-                ld hl, linebuffer
                 ld a, (linebuffer_size)
                 dec a
-                ld d, 0
-                ld e, a
-                add hl, de
+                call get_linebuffer_at_index
         ENDM
 
         ; Moves Virtual Position one to the left
@@ -244,13 +233,16 @@
                 ld (linebuffer_offset), a
         ENDM
 
-        ; Moves Virtual Position one to the right
+        ; Moves Virtual Position one to the right, and increment buffer size by one
         ; Returns:
-        ;       A - value in linebuffer_offset
-        MACRO INC_LINEBUFFER_OFFSET _
-                ld a, (linebuffer_offset)
-                inc a
-                ld (linebuffer_offset), a
+        ;       L - value in linebuffer_offset
+        ;       H - value in linebuffer_size
+        MACRO INC_LINEBUFFER_SIZE_AND_OFFSET _
+                ; ASSUMPTION size follows offset!
+                ld hl, (linebuffer_offset)
+                inc h
+                inc l
+                ld (linebuffer_offset), hl
         ENDM
 
         ; Decrease linebuffer_size by one
@@ -260,29 +252,6 @@
                 ld a, (linebuffer_size)
                 dec a
                 ld (linebuffer_size), a
-        ENDM
-
-        ; Increase linebuffer_size by one
-        ; Returns:
-        ;       A - value in linebuffer_size
-        MACRO INC_LINEBUFFER_SIZE _
-                ld a, (linebuffer_size)
-                inc a
-                ld (linebuffer_size), a
-        ENDM
-
-        ; Wipe Linebuffer but does not adjust linebuffer_size or linebuffer_offset
-        ; Alters: A, BC, DE, HL, IXH
-        MACRO WIPE_LINEBUFFER _
-                ld a, (linebuffer_size)
-                ld ixh, a                               ; store length
-                call move_cursor_to_the_beginning
-                ld b, 0
-                ld c, ixh                               ; BC - length of string
-                S_WRITE2(DEV_STDOUT, whitespace_chars)  ; wipe the current prompt
-                ld a, ixh                               ; prepare linebuffer_offset
-                ld (linebuffer_offset), a               ; ...for
-                call move_cursor_to_the_beginning       ; ...this function
         ENDM
 
         ; Copy the String in HL with the length BC to linebuffer.
@@ -303,7 +272,7 @@
 
         ; Inserts the character at the current cursor position
         ; and adjusts all linebuffer* variables as well as updates the screen.
-        ; Alters: A, BC, DE, HL, IX, IY
+        ; Alters: A, BC, DE, HL
         ; Parameters:
         ;       A - Scancode
         MACRO HANDLE_VISIBLE_SCANCODES _
@@ -314,7 +283,7 @@
                 cp MAX_LINE_LENGTH
                 jp z, _handle_new_input             ; !! handle next char, maybe a delete instruction!
                                                     ; !! because the linebuffer is full - no appending!
-                SAVE_CURSOR_POS()                   ; get cursor position
+                call get_cursor_pos                   ; get cursor position
                 ; Uppercase Test
                 ld a, (kb_flags)
                 and KB_FLAG_ANY_UPPERCASE           ; Check if any shift or capslock was set
@@ -330,45 +299,51 @@
                 ld a, (linebuffer_size)
                 sub c                                   ; a(number of characters to copy) = a(linebuffer_size) - (c)linebuffer_offset
                 ld c, a                                 ; set C to number_of_characters_to_copy
-                ld ix, bc                               ; STORE somewhere else ixh/b=character_to_append, ixl/c=number_of_characters_to_copy
                 jp z, __copy_add_character_completed
                         ; create room in the linebuffer for the newly entered character
                         GET_LINEBUFFER_AT_LASTCHAR()    ; alters registers A and DE
-                        ld de, hl
+                        ; Character to append in A
+                        ld a, b
+                        ld d, h
+                        ld e, l
                         inc de                          ; de is end_of_linebuffer + 1
                         ld b, 0                         ; bc == number of chars to copy
                         lddr                            ; copy all bytes!
+                        ; Put the character to append back in B
+                        ld b, a
         __copy_add_character_completed:
                 GET_LINEBUFFER_AT_OFFSET()              ; alters registers A and DE
-                ; char needs to be placed at (HL)
-                ; so make space for it
-                ld a, ixh
-                ld (hl), a                              ; write the char in A to the linebuffer
-                ld (charbuffer), a                      ; write the char in A to the charbuffer
-                S_WRITE3(DEV_STDOUT, charbuffer, 1)     ; output it to the screen / Alters: BC, DE, HL
-                INC_LINEBUFFER_SIZE()
-                INC_LINEBUFFER_OFFSET()
-                ld b, a                                 ; b := linebuffer_offset
-                ld a, (linebuffer_size)
-                sub b                                   ; a := linebuffer_size - linebuffer_offset => number of relocated characters
+                ; Chararacter to append is still in B, it needs to be placed at (HL)
+                ld (hl), b                              ; write the char in A to the linebuffer
+                ; Reuse HL to show the character
+                ex de, hl
+                ld bc, 1
+                S_WRITE1(DEV_STDOUT)                    ; output it to the screen / Alters: BC, HL
+                ; FIXME: Check return value?
+                INC_LINEBUFFER_SIZE_AND_OFFSET()        ; l := linebuffer_offset, h := linebuffer_size
+                ld a, h
+                sub l                                   ; a := linebuffer_size - linebuffer_offset => number of relocated characters
                 jp z, _handle_new_input                 ; if linebuffer_offset == linebuffer_size
                                                         ; then no copied characters needs to be printed out
                 ld c, a
                 ld b, 0                                 ; bc == length to print
-                GET_LINEBUFFER_AT_OFFSET()              ; alters registers A and DE
-                ld de, hl                               ; we can't use S_WRITE2(DEV_STDOUT, hl) because it alters HL before setting DE to HL
+                ; Buffer to print is still in DE (added character)
+                inc de
+                ; Backup the cursor since it already contains the new valid position
+                call get_cursor_pos
                 S_WRITE1(DEV_STDOUT)                    ; S_WRITE1 uses BC as lenght
-                call move_cursor_to_the_right
+                ; Restore cursor position
+                SET_CURSOR_POS()
         ENDM
 
-        ; Removes the chacter on the left of the cursor, updates all linebuffer* variables
+        ; Removes the character on the left of the cursor, updates all linebuffer* variables
         ; and updates the screen accordingly.
         ; Alters: A, BC, DE, HL, IX, IY
         MACRO HANDLE_BACKSPACE_EVENT _
-                SAVE_CURSOR_POS()         ; get cursor position
                 ld a, (linebuffer_offset) ; load x position of VirtualCursor to A
                 or a
                 jp z, _handle_new_input   ; CASE 1: VirtualCursor was competly left - ignore this
+                call get_cursor_pos         ; get cursor position
                 ; Register A is now the position in the linebuffer
                 ld c, a                 ; save value to C
                 ld a, (linebuffer_size)
@@ -378,20 +353,20 @@
                 ld b, 0
                 ld c, a                         ; bc == a := length of bytes to copy
                 GET_LINEBUFFER_AT_OFFSET()      ; alters registers A and DE
-                ld de, hl
+                ld d, h
+                ld e, l
                 dec de                          ; de = linebuffer_at_offset - 1
-                ld ix, bc                       ; store bc in IX for later!
-                ld iy, de                       ; store DE in IY for later!
+                push bc
+                push de
                 ldir                            ; de (dest), hl (src), bc (byte counter) MOVE all characters one step to the left
                 call move_cursor_to_the_left
-                S_WRITE3(DEV_STDOUT, iy, ix)             ; output the moved characters
-                S_WRITE3(DEV_STDOUT, whitespace_chars, 1); overwrite the char that was deleted
+                pop de
+                pop bc
+                S_WRITE1(DEV_STDOUT)             ; output the moved characters
+                jr __backspace_clear_last
+        __backspace_at_the_end:  ; CASE 3: cursor was at the end of the line
                 call move_cursor_to_the_left
-                DEC_LINEBUFFER_OFFSET()
-                DEC_LINEBUFFER_SIZE()
-                jp _handle_new_input
-        __backspace_at_the_end:  ; CASE 3: curser was at the end of the line
-                call move_cursor_to_the_left
+        __backspace_clear_last:
                 S_WRITE3(DEV_STDOUT, whitespace_chars, 1); overwrite the deleted char with " "
                 call move_cursor_to_the_left             ; curser to the new position
                 DEC_LINEBUFFER_OFFSET()
@@ -399,23 +374,14 @@
         ENDM
 
         ; "zealline_init" sets up stuff
-        ; Alters: A
+        ; Alters: A, BC, DE, HL
 zealline_init:
-        push bc
-        push de
-        push hl
         ;;; Setup Prompt
         ld de, prompt                   ; destination
         ld hl, default_prompt           ; source
-        ld a, (default_prompt_length)   ; length
-        ld b, 0
-        ld c, a
+        ld bc, default_prompt_end - default_prompt
         ldir
         ; TODO: Maybe read config file in the future
-
-        pop hl
-        pop de
-        pop bc
         ret
 
 
@@ -426,7 +392,7 @@ zealline_init:
         ;   return the first C bytes.
         ;   The string written to buffer will the null terminated. Keep in mind
         ;   that the null-byte consumeds one byte so there will only be C-1 characters
-        ;   in DE. 
+        ;   in DE.
         ;   TODO:
         ;     - manage a history
         ;     - call tab completions functions
@@ -439,14 +405,17 @@ zealline_init:
         ; Alters:
         ;   A, BC, DE
 zealline_get_line:
-        ld b, 0  ; set B to = 0 because we only accept C as length parameter
-        dec c    ; decrease c because we need one byte for the 0-byte
-        push de  ; save registers for later
-        push bc
-        ; check if C is within boundaries: must be not largher then MAX
+        ; check if C is within boundaries: must be not larger than MAX
         ld a, c
         cp MAX_LINE_LENGTH
-        jp nc, print_requested_to_much_buffer_and_return
+        ld a, ERR_INVALID_PARAMETER
+        ret nc
+        ; Given length is correct
+        ld b, 0  ; set B to = 0 because we only accept C as length parameter
+        dec c    ; decrease c because we need one byte for the terminal NULL-byte
+        push de  ; save registers for later
+        push bc
+        ; Error from the system, print a message
         SET_STDIN_TO_RAW__ON_ERROR(print_stdin_raw_error_and_fatalloop)
         GET_SCREEN_AREA__ON_ERROR(print_screen_area_error_and_fatalloop)
 _print_prompt:
@@ -454,6 +423,10 @@ _print_prompt:
         INITIALIZE_LINEBUFFER_VARIABLES()
 _handle_new_input:
         S_READ3(DEV_STDIN, readbuffer, READBUFFER_SIZE) ; sets DE to readbuffer
+        ; Check if we received anything
+        ld a, b
+        or c
+        jr z, _handle_new_input
         ld a, (de)                 ; read first char into a
         ON_KEY_PUSHED_EVENT_GOTO(_handle_key_pushed_events)
 _handle_key_released_events:
@@ -480,40 +453,33 @@ _handle_key_pushed_events:
         ON_KEYEVENT_GOTO( KB_RIGHT_ARROW,   _handle_right_arrow)
         ON_KEYEVENT_GOTO( KB_UP_ARROW,      _handle_up_arrow)
         ON_KEYEVENT_GOTO( KB_DOWN_ARROW,    _handle_down_arrow)
-        ON_IGNORED_SCANCODES_GOTO(_handle_new_input) 
+        ON_IGNORED_SCANCODES_GOTO(_handle_new_input)
         ; everything that reaches this code is a normal scancode
         ON_CTRL_MODE_GOTO( _handle_ctrl_mode)
         HANDLE_VISIBLE_SCANCODES()
         jp _handle_new_input       ; read next character
 _handle_ctrl_mode:
         ; handle keystrokes in combination with CTRL
-        ON_KEYEVENT_GOTO( 'a',              _handle_ctrl_a )
-        ON_KEYEVENT_GOTO( 'e',              _handle_ctrl_e )
-        ON_KEYEVENT_GOTO( 'c',              _handle_ctrl_c )
+        ON_KEYEVENT_GOTO_NEAR( 'a',         _handle_ctrl_a )
+        ON_KEYEVENT_GOTO_NEAR( 'e',         _handle_ctrl_e )
+        ON_KEYEVENT_GOTO_NEAR( 'c',         _handle_ctrl_c )
         jp _handle_new_input
 _handle_ctrl_a:
         call move_cursor_to_the_beginning
         jp _handle_new_input
 _handle_ctrl_e:
-        ; Move cursor to the far right
-        SAVE_CURSOR_POS()
-        ld a, (screen_area + area_width_t)
-        ld b, a                         ; B := divisor is the screen_area width
-        ld a, (linebuffer_offset)
+        ; Move cursor to the far right, the easiest solution is to print the buffer on the right
+        ; of the cursor
+        GET_LINEBUFFER_AT_OFFSET()
         ld c, a
         ld a, (linebuffer_size)
-        sub c                           ; A := steps to the right = linebuffer_size - linebuffer_offset
-        call divide_and_modulo          ; B = A / B and C =A % B
-        LOAD_CURSOR_SWAPPED()
-        ld a, d                         ; apply modulo on x-axis
-        add b
-        ld d, a
-        ld a, e                         ; apply quotient on y-axis
-        add c
-        ld e, a
-        MOVE_CURSOR_POS()
-        ld a, (linebuffer_size)
+        ; In all cases, the cursor because the size
         ld (linebuffer_offset), a
+        sub c
+        jp z, _handle_new_input
+        ld b, 0
+        ex de, hl
+        S_WRITE1(DEV_STDOUT)
         jp _handle_new_input
 _handle_ctrl_c:
         ; Abort this command
@@ -521,36 +487,33 @@ _handle_ctrl_c:
         call zealline_reset_history_search
         jp _print_prompt                        ; print prompt
 _handle_up_arrow:
-        WIPE_LINEBUFFER()
+        call wipe_linebuffer
         call zealline_history_search_backward   ; BC - length, HL - ptr
         COPY_HL_BC_TO_LINEBUFFER()
         jp _handle_new_input
 _handle_down_arrow:
-        WIPE_LINEBUFFER()
+        call wipe_linebuffer
         call zealline_history_search_forward    ; BC - length, HL - ptr
         COPY_HL_BC_TO_LINEBUFFER()
         jp _handle_new_input
 _handle_left_arrow:
-        SAVE_CURSOR_POS()
         ; boundary check with linebuffer_offset and 0
         ld a, (linebuffer_offset)
         dec a
         jp m, _handle_new_input
         ld (linebuffer_offset), a
-        call move_cursor_to_the_left
+        call get_and_move_cursor_to_the_left
         jp _handle_new_input
 _handle_right_arrow:
-        SAVE_CURSOR_POS()
-        ; boundary check with linebuffer_offset and linebuffer_length
-        ld a, (linebuffer_offset)
+        ; Load both the offset and the size at the same time! (L = offset, H = size)
+        ld hl, (linebuffer_offset)
+        ld a, l
         inc a
-        ld b, a
-        ld a, (linebuffer_size)
-        cp b
-        jp c, _handle_new_input
-        ld a, b
+        ; If both are equal, we cannot go further on the right
+        cp h
+        jp z, _handle_new_input
         ld (linebuffer_offset), a
-        call move_cursor_to_the_right
+        call get_and_move_cursor_to_the_right
         jp _handle_new_input
 _handle_shift_left:
         TOGGLE_KB_FLAG(KB_FLAG_LEFT_SHIFT_BIT)
@@ -585,16 +548,17 @@ _handle_enter:
         jp nc, __use_c_register    ; Use the smaller value: if carry is not set, A > C, use C
         ld c, a                    ; IF NOT: trick __use_c_register to in fact use A
 __use_c_register:
-        ld b, 0                    ; only use C of BC
         ld a, c                    ; check if C is zero, if so we're done
         or a
-        jr z, __copy_line_completed
+        ; Success, if the size is 0
+        ret z
+        ld b, 0                    ; only use C of BC
         ld hl, linebuffer          ; source
         ldir                       ; ldir counts down to BC == 0
-        ld (de), 0
         ld c, a                    ; but A still contains the old c value
-__copy_line_completed:
+        ; Return success (0) and add a NULL-byte at the end of DE
         xor a
+        ld (de), a
         ret                        ; returns BC = length, A = 0 (no error)
 _handle_backspace_event:
         HANDLE_BACKSPACE_EVENT()
@@ -608,31 +572,56 @@ _handle_backspace_event:
         ; Alters: A
         ; Returns:
 zealline_set_prompt:
-        push de
         push bc
+        push de
+        ; Copy MAX_PROMPT_LENGTH bytes to DE, we cannot use strncpy since the escape characters
+        ; can contain 0
+        ld bc, MAX_PROMPT_LENGTH
         ld de, prompt
-        ld bc, 0
-_set_prompt_loop:
-        inc c
-        ld a, c
-        cp MAX_PROMPT_LENGTH            ; boundary check
-        jr z, _set_prompt_copy_complete
-        ld a, (hl)
-        ld (de), a
-        or a                            ; NULL-byte check
-        jp z, _set_prompt_copy_complete
-        inc de
-        inc hl
-        jr _set_prompt_loop
-_set_prompt_copy_complete:
-        pop bc
+        ldir
         pop de
+        pop bc
         ret
 
 
         ; ---------------------------------------------------------------------
         ; PRIVATE_FUNCTIONS (all to be call'ed)
         ; ---------------------------------------------------------------------
+
+
+        ; Get address of character at index A in linebuffer
+get_linebuffer_at_index:
+        ld hl, linebuffer
+        ld d, 0
+        ld e, a
+        add hl, de
+        ret
+
+
+        ; Stores the Position of the cursor to RAM
+        ; Alters: DE, HL, C, A
+get_cursor_pos:
+        ld de, cursor_position
+        ld h, DEV_STDOUT
+        ld c, CMD_GET_CURSOR_XY
+        IOCTL()
+        ret
+
+
+        ; Wipe Linebuffer but does not adjust linebuffer_size or linebuffer_offset
+        ; Alters: A, BC, DE, HL, IXH
+wipe_linebuffer:
+        ld a, (linebuffer_size)
+        push af
+        call move_cursor_to_the_beginning
+        pop af
+        ld b, 0
+        ld c, a                                 ; BC - length of string
+        S_WRITE2(DEV_STDOUT, whitespace_chars)  ; wipe the current prompt
+        ; FIXME: Check return value?
+        ld a, c                                 ; prepare linebuffer_offset
+        ld (linebuffer_offset), a               ; ...for
+        jp move_cursor_to_the_beginning         ; ...this function
 
 
         ; divide_and_modulo
@@ -655,13 +644,15 @@ __modulo:
 
 
         ; move_cursor_to_the_left
-        ;   It assumes that your current coursor position is stored in 
+        ;   It assumes that your current coursor position is stored in
         ;   cursor_position. It moves the cursor left, and if there is
         ;   no left it puts the cursor to the end of the line above.
         ; Returns:
         ;   A  - ERR_SUCCESS on success, error value else
         ; Alters:
         ;   A, C, DE, HL
+get_and_move_cursor_to_the_left:
+        call get_cursor_pos
 move_cursor_to_the_left:
         ld de, (cursor_position)        ; load
         ld a, e                         ; and swap
@@ -674,18 +665,20 @@ move_cursor_to_the_left:
                 dec a
                 ld d, a                 ; set cursor in the end of the line
 _set_cursor:
-        MOVE_CURSOR_POS()               ; Alters: HL, C, A
+        SET_CURSOR_POS()               ; Alters: HL, C, A
         ret
 
 
         ; move_cursor_to_the_right
-        ;   It assumes that your current coursor position is stored in 
+        ;   It assumes that your current coursor position is stored in
         ;   cursor_position. It moves the cursor right, and if there is
         ;   no right it puts the cursor to the beginning of the line below.
         ; Returns:
         ;   A  - ERR_SUCCESS on success, error value else
         ; Alters:
         ;   A, BC, DE
+get_and_move_cursor_to_the_right:
+        call get_cursor_pos
 move_cursor_to_the_right:
         ld b, h                  ; B is unused: store old H
         ld de, (cursor_position) ; load
@@ -704,7 +697,7 @@ move_cursor_to_the_right:
         ; Requires linebuffer_offset to be "correct"
         ; Alters: A, BC, DE, HL
 move_cursor_to_the_beginning:
-        SAVE_CURSOR_POS()
+        call get_cursor_pos
         ld a, (screen_area + area_width_t)
         ld b, a                         ; divisor is the screen_area width
         ld a, (linebuffer_offset)       ; dividend
@@ -716,8 +709,8 @@ move_cursor_to_the_beginning:
         ld a, e                         ; apply quotient on y-axis
         sub c
         ld e, a
-        MOVE_CURSOR_POS()
-        ld a, 0
+        SET_CURSOR_POS()
+        xor a   ; A = 0
         ld (linebuffer_offset), a
         ret
 
@@ -726,37 +719,29 @@ move_cursor_to_the_beginning:
         ; ERROR HANDLING ROUTINES
         ; ---------------------------------------------------------------------
 print_stdin_raw_error_and_fatalloop:
-        S_WRITE3(DEV_STDOUT, _set_stdin_raw_error, _set_stdin_raw_error_end - _set_stdin_raw_error)        
-        jp fatal_error_loop
+        S_WRITE3(DEV_STDOUT, _set_stdin_raw_error, _set_stdin_raw_error_end - _set_stdin_raw_error)
+        jr fatal_error_main_loop
 
 print_screen_area_error_and_fatalloop:
         S_WRITE3(DEV_STDOUT, _screen_area_error, _screen_area_error_end - _screen_area_error)
-        jp fatal_error_loop
+        ; Fall-through
 
-print_cursor_read_error_and_fatalloop:
-        S_WRITE3(DEV_STDOUT, _cursor_read_error, _cursor_read_error_end - _cursor_read_error)        
-        jr fatal_error_loop
-
-print_requested_to_much_buffer_and_return:
-        S_WRITE3(DEV_STDOUT, _requested_to_much, _requested_to_much_end - _requested_to_much)
+fatal_error_main_loop:
+        pop bc
+        pop de
         ret
-
-fatal_error_loop: ; just terminate
-        halt
 
         ; ---------------------------------------------------------------------
         SECTION DATA
         ; ---------------------------------------------------------------------
 
 default_prompt:             defb ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_LIGHT_GRAY, "zealline> ", ESCAPE_CHAR, 'c', TEXT_COLOR_BLACK, TEXT_COLOR_WHITE, 0x0
-default_prompt_length:      defs 1, 19
+default_prompt_end:
 whitespace_chars:           defs MAX_LINE_LENGTH, 0x20
 newline_char:               defm "\n"
 
 _screen_area_error: DEFM "error: cant read the screen area\n"
 _screen_area_error_end:
-_requested_to_much: DEFM "error: you can not request more bytes then MAX_LINE_LENGTH\n"
-_requested_to_much_end:
 _cursor_read_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
 _cursor_read_error_end:
 _set_stdin_raw_error: DEFM "error: cant set stdin mode to KB_MODE_RAW\n"
@@ -766,10 +751,10 @@ _set_stdin_raw_error_end:
         SECTION BSS
         ; ---------------------------------------------------------------------
 
-prompt:                     defs MAX_PROMPT_LENGTH, 0                
+prompt:                     defs MAX_PROMPT_LENGTH, 0
 readbuffer:                 defs 2
-charbuffer:                 defs 1
 linebuffer:                 defs MAX_LINE_LENGTH + 1 ; line + newline_char
+    ; Make sure offset and size ALWAYS follow eachother
 linebuffer_offset:          defs 1
 linebuffer_size:            defs 1
 kb_flags:                   defs 1 ; store shift and caps lock, etc
