@@ -16,13 +16,14 @@
         ;   A
 zealline_to_uppercase:
         push hl
-        push bc
-        ld c, b
-        ld b, 0 ; set the high byte to 0
         ld hl, upper_case
-        add hl, bc ; plus C
+        ld a, b
+        add l
+        ld l, a
+        adc h
+        sub l
+        ld h, a
         ld a, (hl)
-        pop bc
         pop hl
         ret
 
@@ -34,7 +35,7 @@ upper_case:
         defb  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 
         defb  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 
         defb ' ',  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 
-        defb '(', '!', '@', '#', '$', '%', '^', '&', '*',  0 ,  0 , ':',  0 , '+',  0 ,  0 
+        defb '(', '!', '@', '#', '$', '%', '^', '&', '*',  0 , ';',  0 ,  0 , '+',  0 ,  0 
         defb  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 
         defb  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 ,  0 
         defb '"', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'
