@@ -13,7 +13,7 @@
         ; ---------------------------------------------------------------------
         PUBLIC zealline_reset_history_search
         PUBLIC zealline_history_search_backward
-        PUBLIC zealline_history_search_forwards
+        PUBLIC zealline_history_search_forward
         ;PUBLIC zealline_history_search_backward_substr
         ;PUBLIC zealline_history_search_backward_substr
         PUBLIC zealline_add_history
